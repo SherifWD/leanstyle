@@ -9,6 +9,8 @@ use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\SearchController;
 use Illuminate\Support\Facades\Route;
 
+
+Route::get('meta', [\App\Http\Controllers\Api\MetaController::class, 'index']);
 Route::prefix('auth')->group(function () {
     Route::post('register', [AuthController::class, 'register']);
     Route::post('login',    [AuthController::class, 'login']);
@@ -16,6 +18,9 @@ Route::prefix('auth')->group(function () {
     Route::post('logout',   [AuthController::class, 'logout'])->middleware('auth:api');
     Route::get('me',        [AuthController::class, 'me'])->middleware('auth:api');
     Route::post('update-password', [AuthController::class, 'updatePassword'])->middleware('auth:api');
+    Route::post('forgot/request', [AuthController::class, 'forgotRequest']);
+    Route::post('forgot/verify',  [AuthController::class, 'forgotVerify']);
+    Route::post('forgot/reset',   [AuthController::class, 'forgotReset']);
 });
 
 // Public
@@ -77,4 +82,16 @@ Route::prefix('driver')
         Route::get('cash/summary', [DriverController::class, 'cashSummary']);
         Route::post('cash/collect', [DriverController::class, 'collectCash']);   // {order_id, amount, note?}
         Route::post('cash/remit',   [DriverController::class, 'remitCash']);     // {amount, reference?}
+    });
+    
+    Route::prefix('owner')
+    ->middleware(['auth:api','role:shop_owner'])
+    ->group(function () {
+        Route::get('shops',              [\App\Http\Controllers\Api\OwnerController::class, 'myShops']);
+        Route::post('shops',             [\App\Http\Controllers\Api\OwnerController::class, 'createShop']);
+
+        Route::get('orders',             [\App\Http\Controllers\Api\OwnerController::class, 'myOrders']);
+        Route::post('orders/{order}/state', [\App\Http\Controllers\Api\OwnerController::class, 'updateOrderState']);
+
+        Route::post('products',          [\App\Http\Controllers\Api\OwnerController::class, 'createProduct']);
     });

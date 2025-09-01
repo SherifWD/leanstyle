@@ -11,7 +11,7 @@ use Tymon\JWTAuth\Facades\JWTAuth;
 use Tymon\JWTAuth\Exceptions\JWTException;
 use App\Traits\backendTraits;
 use App\Traits\HelpersTrait;
-
+use Illuminate\Support\Facades\Cache;
 class AuthController extends Controller
 {
     use backendTraits, HelpersTrait;
@@ -51,35 +51,38 @@ class AuthController extends Controller
      * POST /api/auth/login
      * Accepts phone OR email.
      */
-    public function login(Request $request)
-    {
-        $credentials = $request->validate([
-            'login'    => ['required','string'], // phone or email
-            'password' => ['required','string'],
-        ]);
+   public function login(Request $request)
+{
+    $credentials = $request->validate([
+        'login'    => ['required','string'],
+        'password' => ['required','string'],
+        'role'     => ['nullable', Rule::in(['customer','shop_owner','delivery_boy','admin'])],
+    ]);
 
-        // Resolve by login field
-        $field = filter_var($credentials['login'], FILTER_VALIDATE_EMAIL) ? 'email' : 'phone';
+    $field = filter_var($credentials['login'], FILTER_VALIDATE_EMAIL) ? 'email' : 'phone';
+    $user  = User::where($field, $credentials['login'])->first();
 
-        $user = User::where($field, $credentials['login'])->first();
-        if (!$user || !Hash::check($credentials['password'], $user->password)) {
-            return $this->returnError('Invalid credentials', 422);
-        }
-        if ($user->is_blocked) {
-            return $this->returnError('Account is blocked', 403);
-        }
-
-        $token = JWTAuth::fromUser($user);
-
-        return $this->returnData('auth', [
-            'user'  => $this->userPayload($user),
-            'token' => [
-                'access_token' => $token,
-                'token_type'   => 'bearer',
-                'expires_in'   => auth('api')->factory()->getTTL() * 60,
-            ],
-        ], 'Login successful');
+    if (!$user || !Hash::check($credentials['password'], $user->password)) {
+        return $this->returnError('Invalid credentials', 422);
     }
+    if (!empty($credentials['role']) && $user->role !== $credentials['role']) {
+        return $this->returnError('Role mismatch for this account', 403);
+    }
+    if ($user->is_blocked) {
+        return $this->returnError('Account is blocked', 403);
+    }
+
+    $token = JWTAuth::fromUser($user);
+    return $this->returnData('auth', [
+        'user'  => $this->userPayload($user),
+        'token' => [
+            'access_token' => $token,
+            'token_type'   => 'bearer',
+            'expires_in'   => auth('api')->factory()->getTTL() * 60,
+        ],
+    ], 'Login successful');
+}
+
 
     /**
      * GET /api/auth/me
@@ -151,4 +154,66 @@ class AuthController extends Controller
             'is_available' => (bool)$user->is_available,
         ];
     }
+
+    public function forgotRequest(Request $request)
+{
+    $data = $request->validate(['phone' => ['required','string','max:30']]);
+
+    $user = User::where('phone', $data['phone'])->first();
+    if (!$user) return $this->returnError('Phone not found', 404);
+
+    $otp = (string) random_int(100000, 999999);
+    Cache::put("otp:{$data['phone']}", $otp, now()->addMinutes(10));
+
+    // TODO: send via SMS gateway
+    \Log::info("DEBUG OTP for {$data['phone']}: {$otp}");
+
+    return $this->returnSuccessMessage('OTP sent to your phone');
+}
+
+/**
+ * POST /api/auth/forgot/verify
+ * { phone, otp }
+ */
+public function forgotVerify(Request $request)
+{
+    $data = $request->validate([
+        'phone' => ['required','string','max:30'],
+        'otp'   => ['required','string','size:6'],
+    ]);
+
+    $saved = Cache::get("otp:{$data['phone']}");
+    if (!$saved || $saved !== $data['otp']) {
+        return $this->returnError('Invalid or expired OTP', 422);
+    }
+    return $this->returnSuccessMessage('OTP verified');
+}
+
+/**
+ * POST /api/auth/forgot/reset
+ * { phone, otp, new_password }
+ */
+public function forgotReset(Request $request)
+{
+    $data = $request->validate([
+        'phone'        => ['required','string','max:30'],
+        'otp'          => ['required','string','size:6'],
+        'new_password' => ['required','string','min:8'],
+    ]);
+
+    $saved = Cache::get("otp:{$data['phone']}");
+    if (!$saved || $saved !== $data['otp']) {
+        return $this->returnError('Invalid or expired OTP', 422);
+    }
+
+    $user = User::where('phone', $data['phone'])->first();
+    if (!$user) return $this->returnError('Phone not found', 404);
+
+    $user->password = Hash::make($data['new_password']);
+    $user->save();
+    Cache::forget("otp:{$data['phone']}");
+
+    return $this->returnSuccessMessage('Password reset successfully');
+}
+
 }
