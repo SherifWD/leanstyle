@@ -91,13 +91,7 @@ $q = Product::where('store_id',$store->id)->with(['images','category','brand','v
             default      => $q->latest('id'),
         };
 
-        $products = $q->paginate($request->integer('per_page', 16))
-            ->through(fn($p) => [
-                'id'          => $p->id,
-                'name'        => $p->name,
-                'image'       => optional($p->images->sortBy('sort')->first())->path,
-                'final_price' => (float)($p->discount_price ?? $p->price),
-            ]);
+        $products = $q->paginate($request->integer('per_page', 16));
 
         return $this->returnData('store_products', $products, "Store products");
     }
