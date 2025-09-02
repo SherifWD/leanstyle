@@ -33,64 +33,68 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withExceptions(function (Exceptions $exceptions): void {
 
-    $json = function (string $msg, int $status = 422, $extra = [], ?\Throwable $e = null) {
-    // Normalize $extra to array
-    if (is_object($extra)) {
-        $extra = (array) $extra;
-    } elseif (!is_array($extra)) {
-        $extra = [];
-    }
-
-    $code = $extra['code'] ?? null;
-
-    $payload = [
-        'result'   => false,
-        'msg'      => $msg,
-        'code'     => $code,
-        'data'     => (object) [],
-        'trace_id' => app()->bound('request_id') ? app('request_id') : null,
-    ];
-
-    // In debug, surface extra fields under data.debug (sans 'code')
-    if (!empty($extra) && config('app.debug')) {
-        $debug = $extra;
-        unset($debug['code']);
-        if (!empty($debug)) {
-            $payload['data'] = ['debug' => $debug];
+    $json = function (string $msg, int $status = 422, $extra = [], ?Throwable $e = null) {
+        // Normalize $extra to array
+        if (is_object($extra)) {
+            $extra = (array) $extra;
+        } elseif (!is_array($extra)) {
+            $extra = [];
         }
-    }
 
-    // Also include exception details in debug
-    if ($e && config('app.debug')) {
-        $payload['data']['debug'] = array_merge($payload['data']['debug'] ?? [], [
-            'exception' => get_class($e),
-            'message'   => $e->getMessage(),
-            'file'      => $e->getFile().':'.$e->getLine(),
-            'previous'  => $e->getPrevious()?->getMessage(),
-        ]);
-    }
+        $code = $extra['code'] ?? null;
 
-    return response()->json($payload, $status);
-};
+        // Build with 'data' as ARRAY (important)
+        $payload = [
+            'result'   => false,
+            'msg'      => $msg,
+            'code'     => $code,
+            'data'     => [], // <-- array while building
+            'trace_id' => app()->bound('request_id') ? app('request_id') : null,
+        ];
 
-    // 422: Validation
+        // In debug, surface extra (minus 'code') under data.debug
+        if (!empty($extra) && config('app.debug')) {
+            $debug = $extra;
+            unset($debug['code']);
+            if (!empty($debug)) {
+                $payload['data']['debug'] = $debug;
+            }
+        }
+
+        // Also include exception details in debug
+        if ($e && config('app.debug')) {
+            $payload['data']['debug'] = array_merge($payload['data']['debug'] ?? [], [
+                'exception' => get_class($e),
+                'message'   => $e->getMessage(),
+                'file'      => $e->getFile() . ':' . $e->getLine(),
+                'previous'  => $e->getPrevious()?->getMessage(),
+            ]);
+        }
+
+        // If data is still empty array, cast to object for your public shape
+        if (empty($payload['data'])) {
+            $payload['data'] = (object) [];
+        }
+
+        return response()->json($payload, $status);
+    };
+
+    // keep your handlers, they can now safely pass array OR object $extra
+    // Example tweaks (unchanged logic):
     $exceptions->render(function (ValidationException $e) use ($json) {
         $errors = $e->errors();
         $first  = $e->getMessage() ?: collect($errors)->flatten()->first() ?: 'Validation error';
         return $json($first, 422, ['errors' => $errors, 'code' => 'VALIDATION_ERROR'], $e);
     });
 
-    // 401: Unauthenticated
     $exceptions->render(function (AuthenticationException $e) use ($json) {
         return $json('Unauthenticated', 401, ['code' => 'UNAUTHENTICATED'], $e);
     });
 
-    // 403: Forbidden
     $exceptions->render(function (AuthorizationException $e) use ($json) {
         return $json('Forbidden', 403, ['code' => 'FORBIDDEN'], $e);
     });
 
-    // 404: Model not found
     $exceptions->render(function (ModelNotFoundException $e) use ($json) {
         $extra = ['code' => 'MODEL_NOT_FOUND'];
         if (config('app.debug')) {
@@ -100,35 +104,30 @@ return Application::configure(basePath: dirname(__DIR__))
         return $json('Resource not found', 404, $extra, $e);
     });
 
-    // 404: Route not found
     $exceptions->render(function (NotFoundHttpException $e) use ($json) {
         return $json('Endpoint not found', 404, ['code' => 'ROUTE_NOT_FOUND'], $e);
     });
 
-    // 405: Wrong HTTP method
     $exceptions->render(function (MethodNotAllowedHttpException $e) use ($json) {
         return $json('Method not allowed', 405, ['code' => 'METHOD_NOT_ALLOWED'], $e);
     });
 
-    // 429: Rate limit
     $exceptions->render(function (ThrottleRequestsException $e) use ($json) {
         $retry = method_exists($e, 'getHeaders') ? ($e->getHeaders()['Retry-After'] ?? null) : null;
         return $json('Too many requests', 429, ['retry_after' => $retry, 'code' => 'TOO_MANY_REQUESTS'], $e);
     });
 
-    // JWT issues → 401
-    $exceptions->render(function (\Tymon\JWTAuth\Exceptions\TokenInvalidException $e) use ($json) {
+    $exceptions->render(function (TokenInvalidException $e) use ($json) {
         return $json('Invalid token', 401, ['code' => 'TOKEN_INVALID'], $e);
     });
-    $exceptions->render(function (\Tymon\JWTAuth\Exceptions\TokenExpiredException $e) use ($json) {
+    $exceptions->render(function (TokenExpiredException $e) use ($json) {
         return $json('Token expired', 401, ['code' => 'TOKEN_EXPIRED'], $e);
     });
-    $exceptions->render(function (\Tymon\JWTAuth\Exceptions\JWTException $e) use ($json) {
+    $exceptions->render(function (JWTException $e) use ($json) {
         return $json('JWT error', 401, ['code' => 'JWT_ERROR'], $e);
     });
 
-    // Database / SQL errors → 422 (or 409 if constraint)
-    $exceptions->render(function (\Illuminate\Database\QueryException $e) use ($json) {
+    $exceptions->render(function (QueryException $e) use ($json) {
         $sqlState   = $e->errorInfo[0] ?? null;
         $driverCode = $e->errorInfo[1] ?? null;
         $driverMsg  = $e->errorInfo[2] ?? null;
@@ -164,12 +163,10 @@ return Application::configure(basePath: dirname(__DIR__))
         return $json('Type error', 500, ['code' => 'TYPE_ERROR'], $e);
     });
 
-    // Any other HttpException
-    $exceptions->render(function (\Symfony\Component\HttpKernel\Exception\HttpExceptionInterface $e) use ($json) {
+    $exceptions->render(function (HttpExceptionInterface $e) use ($json) {
         return $json($e->getMessage() ?: 'HTTP error', $e->getStatusCode(), ['code' => 'HTTP_EXCEPTION'], $e);
     });
 
-    // Last resort
     $exceptions->render(function (\Throwable $e) use ($json) {
         report($e);
         return $json('Server error', 500, ['code' => 'UNHANDLED_EXCEPTION'], $e);
