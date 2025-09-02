@@ -32,8 +32,13 @@ class OwnerController extends Controller
     /** POST /api/owner/shops */
     public function createShop(Request $request)
 {
-    $user = $request->user('api');
-    dd(Auth::user());
+    $user = $request->user()                      // preferred (current guard)
+         ?? Auth::guard('api')->user()            // explicit api guard
+         ?? (JWTAuth::check() ? JWTAuth::user() : null); // fallback for JWTAuth
+
+    if (!$user) {
+        return $this->returnError(401, 'Unauthenticated. Provide a valid Bearer token.');
+    }
     // 1) Validate (lightweight rules; handle close>open manually)
     $data = $request->validate([
         'name'              => ['required','string','max:255'],
