@@ -33,27 +33,33 @@ class OwnerController extends Controller
 {
     $user = $request->user('api');
 
-    // 1) Validate against your actual schema
+    // 1) Validate shop fields
     $data = $request->validate([
         'name'             => ['required','string','max:255'],
-        // unique slug, ignoring soft-deleted records
         'slug'             => [
             'nullable','string','max:255','regex:/^[a-z0-9-]+$/',
             Rule::unique('stores', 'slug')->whereNull('deleted_at'),
         ],
         'logo_path'        => ['nullable','string','max:255'],
-        'brand_color'      => ['nullable','string','max:255'], // or restrict to hex: 'regex:/^#([A-Fa-f0-9]{3}|[A-Fa-f0-9]{6})$/'
+        'brand_color'      => ['nullable','string','max:255'],
         'description'      => ['nullable','string'],
         'address'          => ['nullable','string','max:255'],
         'lat'              => ['nullable','numeric','between:-90,90'],
         'lng'              => ['nullable','numeric','between:-180,180'],
         'is_active'        => ['nullable','boolean'],
-        'delivery_settings'=> ['nullable'], // accept array or JSON string; validate below
+        'delivery_settings'=> ['nullable'],
         'country'          => ['nullable','string','max:255'],
         'city'             => ['nullable','string','max:255'],
+
+        // Business hours array
+        'business_hours'               => ['required','array','min:1'],
+        'business_hours.*.weekday'     => ['required','integer','between:0,6'],
+        'business_hours.*.open_at'     => ['nullable','date_format:H:i'],
+        'business_hours.*.close_at'    => ['nullable','date_format:H:i','after:business_hours.*.open_at'],
+        'business_hours.*.is_closed'   => ['boolean'],
     ]);
 
-    // 2) Normalize delivery_settings to array (accept JSON string or array)
+    // Normalize delivery_settings
     if (array_key_exists('delivery_settings', $data)) {
         if (is_string($data['delivery_settings']) && $data['delivery_settings'] !== '') {
             $decoded = json_decode($data['delivery_settings'], true);
@@ -66,23 +72,18 @@ class OwnerController extends Controller
         }
     }
 
-    // 3) Slug: auto-generate if missing; ensure uniqueness
+    // Slug auto-generate if missing
     if (empty($data['slug'])) {
         $base = Str::slug($data['name']);
         $slug = $base ?: Str::random(8);
-
         $i = 1;
-        while (
-            Store::withTrashed()
-                ->where('slug', $slug)
-                ->exists()
-        ) {
+        while (Store::withTrashed()->where('slug',$slug)->exists()) {
             $slug = $base.'-'.$i++;
         }
         $data['slug'] = $slug;
     }
 
-    // 4) Create the store
+    // Create the store
     $store = new Store();
     $store->owner_id         = $user->id;
     $store->name             = $data['name'];
@@ -93,14 +94,24 @@ class OwnerController extends Controller
     $store->address          = $data['address']          ?? null;
     $store->lat              = $data['lat']              ?? null;
     $store->lng              = $data['lng']              ?? null;
-    $store->is_active        = array_key_exists('is_active', $data) ? (bool)$data['is_active'] : true;
-    $store->delivery_settings= $data['delivery_settings']?? null; // casted to array/json by model
+    $store->is_active        = array_key_exists('is_active',$data) ? (bool)$data['is_active'] : true;
+    $store->delivery_settings= $data['delivery_settings']?? null;
     $store->country          = $data['country']          ?? null;
     $store->city             = $data['city']             ?? null;
-
     $store->save();
 
-    // 5) Return normalized payload (casts applied)
+    // Insert business hours
+    foreach ($data['business_hours'] as $bh) {
+        BusinessHour::create([
+            'store_id'  => $store->id,
+            'weekday'   => $bh['weekday'],
+            'open_at'   => $bh['open_at']  ?? null,
+            'close_at'  => $bh['close_at'] ?? null,
+            'is_closed' => $bh['is_closed'] ?? false,
+        ]);
+    }
+
+    // Return
     return $this->returnData('store', [
         'id'                => $store->id,
         'owner_id'          => $store->owner_id,
@@ -113,11 +124,12 @@ class OwnerController extends Controller
         'lat'               => $store->lat,
         'lng'               => $store->lng,
         'is_active'         => (bool)$store->is_active,
-        'delivery_settings' => $store->delivery_settings, // array|null
+        'delivery_settings' => $store->delivery_settings,
         'country'           => $store->country,
         'city'              => $store->city,
         'created_at'        => $store->created_at,
         'updated_at'        => $store->updated_at,
+        'business_hours'    => $store->businessHours()->get(),
     ], 'Store created');
 }
 
