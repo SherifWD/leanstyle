@@ -14,9 +14,7 @@ class ProductController extends Controller
 {
     use backendTraits, HelpersTrait;
 
-    // GET /api/product/{product}
-    use Illuminate\Support\Facades\Auth;
-use Tymon\JWTAuth\Facades\JWTAuth;
+    
 
 public function show(Product $product, Request $request)
 {
