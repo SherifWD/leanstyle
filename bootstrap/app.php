@@ -26,80 +26,150 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'role' => \App\Http\Middleware\RoleMiddleware::class,
+            'request.id' => \App\Http\Middleware\RequestId::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
 
-        // Helper to keep your JSON shape consistent
-        $json = function (string $msg, int $status = 422, array $extra = []) {
-            return response()->json(array_merge([
-                'result' => false,
-                'msg'    => $msg,
-                'data'   => (object)[],
-            ], $extra), $status);
-        };
+    $json = function (string $msg, int $status = 422, array $extra = [], ?\Throwable $e = null) {
+        $payload = [
+            'result' => false,
+            'msg'    => $msg,
+            'code'   => $extra['code'] ?? null,   // short machine code (optional)
+            'data'   => (object) [],
+        ];
 
-        // 422: Validation
-        $exceptions->render(function (ValidationException $e) use ($json) {
-            $errors = $e->errors();
-            $first  = $e->getMessage() ?: collect($errors)->flatten()->first() ?: 'Validation error';
-            return $json($first, 422, ['errors' => $errors]);
-        });
+        // always include trace_id for support tickets
+        $payload['trace_id'] = app()->bound('request_id') ? app('request_id') : null;
 
-        // 401: Unauthenticated
-        $exceptions->render(function (AuthenticationException $e) use ($json) {
-            return $json('Unauthenticated', 401);
-        });
+        // attach extra data (non-sensitive)
+        if (!empty($extra)) {
+            // put developer-friendly stuff under data.debug (only in debug mode)
+            $debug = [];
+            foreach ($extra as $k => $v) {
+                if ($k === 'code') continue;
+                $debug[$k] = $v;
+            }
+            if (!empty($debug) && config('app.debug')) {
+                $payload['data'] = ['debug' => $debug];
+            }
+        }
 
-        // 403: Forbidden/Authorization
-        $exceptions->render(function (AuthorizationException $e) use ($json) {
-            return $json('Forbidden', 403);
-        });
-
-        // 404: Model not found (route model binding)
-        $exceptions->render(function (ModelNotFoundException $e) use ($json) {
-            return $json('Resource not found', 404);
-        });
-
-        // 404: Route not found
-        $exceptions->render(function (NotFoundHttpException $e) use ($json) {
-            return $json('Endpoint not found', 404);
-        });
-
-        // 405: Wrong HTTP method
-        $exceptions->render(function (MethodNotAllowedHttpException $e) use ($json) {
-            return $json('Method not allowed', 405);
-        });
-
-        // 429: Rate limit
-        $exceptions->render(function (ThrottleRequestsException $e) use ($json) {
-            return $json('Too many requests', 429, [
-                'retry_after' => method_exists($e, 'getHeaders') ? ($e->getHeaders()['Retry-After'] ?? null) : null,
+        // include exception details only in debug
+        if ($e && config('app.debug')) {
+            $payload['data']['debug'] = array_merge($payload['data']['debug'] ?? [], [
+                'exception' => get_class($e),
+                'message'   => $e->getMessage(),
+                'file'      => $e->getFile() . ':' . $e->getLine(),
+                'previous'  => $e->getPrevious()?->getMessage(),
             ]);
-        });
+        }
 
-        // JWT: invalid/expired/missing → 401/403
-        $exceptions->render(function (TokenInvalidException $e) use ($json) {
-            return $json('Invalid token', 401);
-        });
-        $exceptions->render(function (TokenExpiredException $e) use ($json) {
-            return $json('Token expired', 401);
-        });
-        $exceptions->render(function (JWTException $e) use ($json) {
-            // Covers "token not provided", "could not parse token", etc.
-            return $json('JWT error', 401);
-        });
+        return response()->json($payload, $status);
+    };
 
-        // Any other HttpException: keep status but normalize body
-        $exceptions->render(function (HttpExceptionInterface $e) use ($json) {
-            return $json($e->getMessage() ?: 'HTTP error', $e->getStatusCode());
-        });
+    // 422: Validation
+    $exceptions->render(function (ValidationException $e) use ($json) {
+        $errors = $e->errors();
+        $first  = $e->getMessage() ?: collect($errors)->flatten()->first() ?: 'Validation error';
+        return $json($first, 422, ['errors' => $errors, 'code' => 'VALIDATION_ERROR']);
+    });
 
-        // Last-resort: unknown exceptions → 500 JSON (no stack trace)
-        $exceptions->render(function (\Throwable $e) use ($json) {
-            // Log it for debugging
-            report($e);
-            return $json('Server error', 500);
-        });
-    })
+    // 401: Unauthenticated
+    $exceptions->render(function (AuthenticationException $e) use ($json) {
+        return $json('Unauthenticated', 401, ['code' => 'UNAUTHENTICATED'], $e);
+    });
+
+    // 403: Forbidden
+    $exceptions->render(function (AuthorizationException $e) use ($json) {
+        return $json('Forbidden', 403, ['code' => 'FORBIDDEN'], $e);
+    });
+
+    // 404: Model not found
+    $exceptions->render(function (ModelNotFoundException $e) use ($json) {
+        $extra = ['code' => 'MODEL_NOT_FOUND'];
+        if (config('app.debug')) {
+            $extra['model'] = $e->getModel();
+            $extra['ids']   = $e->getIds();
+        }
+        return $json('Resource not found', 404, $extra, $e);
+    });
+
+    // 404: Route not found
+    $exceptions->render(function (NotFoundHttpException $e) use ($json) {
+        return $json('Endpoint not found', 404, ['code' => 'ROUTE_NOT_FOUND'], $e);
+    });
+
+    // 405: Wrong HTTP method
+    $exceptions->render(function (MethodNotAllowedHttpException $e) use ($json) {
+        return $json('Method not allowed', 405, ['code' => 'METHOD_NOT_ALLOWED'], $e);
+    });
+
+    // 429: Rate limit
+    $exceptions->render(function (ThrottleRequestsException $e) use ($json) {
+        $retry = method_exists($e, 'getHeaders') ? ($e->getHeaders()['Retry-After'] ?? null) : null;
+        return $json('Too many requests', 429, ['retry_after' => $retry, 'code' => 'TOO_MANY_REQUESTS'], $e);
+    });
+
+    // JWT issues → 401
+    $exceptions->render(function (TokenInvalidException $e) use ($json) {
+        return $json('Invalid token', 401, ['code' => 'TOKEN_INVALID'], $e);
+    });
+    $exceptions->render(function (TokenExpiredException $e) use ($json) {
+        return $json('Token expired', 401, ['code' => 'TOKEN_EXPIRED'], $e);
+    });
+    $exceptions->render(function (JWTException $e) use ($json) {
+        return $json('JWT error', 401, ['code' => 'JWT_ERROR'], $e);
+    });
+
+    // Database / SQL errors → 422 (or 409 if constraint), but never a blank "server error"
+    $exceptions->render(function (QueryException $e) use ($json) {
+        $sqlState = $e->errorInfo[0] ?? null;
+        $driverCode = $e->errorInfo[1] ?? null;
+        $driverMsg  = $e->errorInfo[2] ?? null;
+
+        $status = 422;
+        $code   = 'DB_QUERY_ERROR';
+
+        // MySQL constraint violation
+        if (in_array($driverCode, [1062, 1451, 1452], true)) {
+            $status = 409;
+            $code   = 'DB_CONSTRAINT_VIOLATION';
+        }
+
+        $extra = [
+            'code'        => $code,
+            'sql_state'   => $sqlState,
+            'driver_code' => $driverCode,
+        ];
+
+        if (config('app.debug')) {
+            $extra['sql']      = $e->getSql();
+            $extra['bindings'] = $e->getBindings();
+            $extra['driver_message'] = $driverMsg;
+        }
+
+        return $json('Database error', $status, $extra, $e);
+    });
+
+    // Low-level PDO or type errors → 500 with debug info (in dev only)
+    $exceptions->render(function (PDOException $e) use ($json) {
+        return $json('Database connection error', 500, ['code' => 'DB_CONNECTION_ERROR'], $e);
+    });
+
+    $exceptions->render(function (TypeError $e) use ($json) {
+        return $json('Type error', 500, ['code' => 'TYPE_ERROR'], $e);
+    });
+
+    // Any other HttpException: keep status but normalize JSON
+    $exceptions->render(function (HttpExceptionInterface $e) use ($json) {
+        return $json($e->getMessage() ?: 'HTTP error', $e->getStatusCode(), ['code' => 'HTTP_EXCEPTION'], $e);
+    });
+
+    // Last resort
+    $exceptions->render(function (\Throwable $e) use ($json) {
+        report($e); // logs with trace_id in context (see below)
+        return $json('Server error', 500, ['code' => 'UNHANDLED_EXCEPTION'], $e);
+    });
+})
     ->create();

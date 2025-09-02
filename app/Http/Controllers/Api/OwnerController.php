@@ -87,7 +87,7 @@ class OwnerController extends Controller
     $store = new Store();
     $store->owner_id         = $user->id;
     $store->name             = $data['name'];
-    $store->slug             = $data['slug'];
+    $store->slug             = null;
     $store->logo_path        = $data['logo_path']        ?? null;
     $store->brand_color      = $data['brand_color']      ?? null;
     $store->description      = $data['description']      ?? null;
