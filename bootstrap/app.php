@@ -31,31 +31,34 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withExceptions(function (Exceptions $exceptions): void {
 
-    $json = function (string $msg, int $status = 422, array $extra = [], ?\Throwable $e = null) {
+    $json = function (string $msg, int $status = 422, $extra = [], ?\Throwable $e = null) {
+        // Normalize $extra to an array
+        if (is_object($extra)) {
+            $extra = (array) $extra;
+        } elseif (!is_array($extra)) {
+            $extra = [];
+        }
+
+        $code = $extra['code'] ?? null;
+
         $payload = [
-            'result' => false,
-            'msg'    => $msg,
-            'code'   => $extra['code'] ?? null,   // short machine code (optional)
-            'data'   => (object) [],
+            'result'   => false,
+            'msg'      => $msg,
+            'code'     => $code,
+            'data'     => (object) [],
+            'trace_id' => app()->bound('request_id') ? app('request_id') : null,
         ];
 
-        // always include trace_id for support tickets
-        $payload['trace_id'] = app()->bound('request_id') ? app('request_id') : null;
-
-        // attach extra data (non-sensitive)
+        // Put developer-friendly extra under data.debug (only in debug)
         if (!empty($extra)) {
-            // put developer-friendly stuff under data.debug (only in debug mode)
-            $debug = [];
-            foreach ($extra as $k => $v) {
-                if ($k === 'code') continue;
-                $debug[$k] = $v;
-            }
+            $debug = $extra;
+            unset($debug['code']); // don’t duplicate code under debug
             if (!empty($debug) && config('app.debug')) {
                 $payload['data'] = ['debug' => $debug];
             }
         }
 
-        // include exception details only in debug
+        // Include exception details only in debug
         if ($e && config('app.debug')) {
             $payload['data']['debug'] = array_merge($payload['data']['debug'] ?? [], [
                 'exception' => get_class($e),
@@ -72,7 +75,7 @@ return Application::configure(basePath: dirname(__DIR__))
     $exceptions->render(function (ValidationException $e) use ($json) {
         $errors = $e->errors();
         $first  = $e->getMessage() ?: collect($errors)->flatten()->first() ?: 'Validation error';
-        return $json($first, 422, ['errors' => $errors, 'code' => 'VALIDATION_ERROR']);
+        return $json($first, 422, ['errors' => $errors, 'code' => 'VALIDATION_ERROR'], $e);
     });
 
     // 401: Unauthenticated
@@ -112,26 +115,25 @@ return Application::configure(basePath: dirname(__DIR__))
     });
 
     // JWT issues → 401
-    $exceptions->render(function (TokenInvalidException $e) use ($json) {
+    $exceptions->render(function (\Tymon\JWTAuth\Exceptions\TokenInvalidException $e) use ($json) {
         return $json('Invalid token', 401, ['code' => 'TOKEN_INVALID'], $e);
     });
-    $exceptions->render(function (TokenExpiredException $e) use ($json) {
+    $exceptions->render(function (\Tymon\JWTAuth\Exceptions\TokenExpiredException $e) use ($json) {
         return $json('Token expired', 401, ['code' => 'TOKEN_EXPIRED'], $e);
     });
-    $exceptions->render(function (JWTException $e) use ($json) {
+    $exceptions->render(function (\Tymon\JWTAuth\Exceptions\JWTException $e) use ($json) {
         return $json('JWT error', 401, ['code' => 'JWT_ERROR'], $e);
     });
 
-    // Database / SQL errors → 422 (or 409 if constraint), but never a blank "server error"
-    $exceptions->render(function (QueryException $e) use ($json) {
-        $sqlState = $e->errorInfo[0] ?? null;
+    // Database / SQL errors → 422 (or 409 if constraint)
+    $exceptions->render(function (\Illuminate\Database\QueryException $e) use ($json) {
+        $sqlState   = $e->errorInfo[0] ?? null;
         $driverCode = $e->errorInfo[1] ?? null;
         $driverMsg  = $e->errorInfo[2] ?? null;
 
         $status = 422;
         $code   = 'DB_QUERY_ERROR';
 
-        // MySQL constraint violation
         if (in_array($driverCode, [1062, 1451, 1452], true)) {
             $status = 409;
             $code   = 'DB_CONSTRAINT_VIOLATION';
@@ -144,31 +146,30 @@ return Application::configure(basePath: dirname(__DIR__))
         ];
 
         if (config('app.debug')) {
-            $extra['sql']      = $e->getSql();
-            $extra['bindings'] = $e->getBindings();
+            $extra['sql']            = $e->getSql();
+            $extra['bindings']       = $e->getBindings();
             $extra['driver_message'] = $driverMsg;
         }
 
         return $json('Database error', $status, $extra, $e);
     });
 
-    // Low-level PDO or type errors → 500 with debug info (in dev only)
-    $exceptions->render(function (PDOException $e) use ($json) {
+    $exceptions->render(function (\PDOException $e) use ($json) {
         return $json('Database connection error', 500, ['code' => 'DB_CONNECTION_ERROR'], $e);
     });
 
-    $exceptions->render(function (TypeError $e) use ($json) {
+    $exceptions->render(function (\TypeError $e) use ($json) {
         return $json('Type error', 500, ['code' => 'TYPE_ERROR'], $e);
     });
 
-    // Any other HttpException: keep status but normalize JSON
-    $exceptions->render(function (HttpExceptionInterface $e) use ($json) {
+    // Any other HttpException
+    $exceptions->render(function (\Symfony\Component\HttpKernel\Exception\HttpExceptionInterface $e) use ($json) {
         return $json($e->getMessage() ?: 'HTTP error', $e->getStatusCode(), ['code' => 'HTTP_EXCEPTION'], $e);
     });
 
     // Last resort
     $exceptions->render(function (\Throwable $e) use ($json) {
-        report($e); // logs with trace_id in context (see below)
+        report($e);
         return $json('Server error', 500, ['code' => 'UNHANDLED_EXCEPTION'], $e);
     });
 })
