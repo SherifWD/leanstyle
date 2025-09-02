@@ -60,17 +60,17 @@ class OwnerController extends Controller
     ]);
 
     // Normalize delivery_settings
-    if (array_key_exists('delivery_settings', $data)) {
-        if (is_string($data['delivery_settings']) && $data['delivery_settings'] !== '') {
-            $decoded = json_decode($data['delivery_settings'], true);
-            if (json_last_error() !== JSON_ERROR_NONE) {
-                return $this->returnError(422, 'delivery_settings must be valid JSON');
-            }
-            $data['delivery_settings'] = $decoded;
-        } elseif (!is_array($data['delivery_settings']) && !is_null($data['delivery_settings'])) {
-            return $this->returnError(422, 'delivery_settings must be an object/array or JSON string');
-        }
-    }
+    // if (array_key_exists('delivery_settings', $data)) {
+    //     if (is_string($data['delivery_settings']) && $data['delivery_settings'] !== '') {
+    //         $decoded = json_decode($data['delivery_settings'], true);
+    //         if (json_last_error() !== JSON_ERROR_NONE) {
+    //             return $this->returnError(422, 'delivery_settings must be valid JSON');
+    //         }
+    //         $data['delivery_settings'] = $decoded;
+    //     } elseif (!is_array($data['delivery_settings']) && !is_null($data['delivery_settings'])) {
+    //         return $this->returnError(422, 'delivery_settings must be an object/array or JSON string');
+    //     }
+    // }
 
     // Slug auto-generate if missing
     if (empty($data['slug'])) {
@@ -95,7 +95,7 @@ class OwnerController extends Controller
     $store->lat              = $data['lat']              ?? null;
     $store->lng              = $data['lng']              ?? null;
     $store->is_active        = array_key_exists('is_active',$data) ? (bool)$data['is_active'] : true;
-    $store->delivery_settings= $data['delivery_settings']?? null;
+    $store->delivery_settings= null;
     $store->country          = $data['country']          ?? null;
     $store->city             = $data['city']             ?? null;
     $store->save();
@@ -107,7 +107,7 @@ class OwnerController extends Controller
             'weekday'   => $bh['weekday'],
             'open_at'   => $bh['open_at']  ?? null,
             'close_at'  => $bh['close_at'] ?? null,
-            'is_closed' => 1,
+            'is_closed' => $bh['is_closed'] ?? false,
         ]);
     }
 
