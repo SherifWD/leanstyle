@@ -224,7 +224,7 @@ class OwnerController extends Controller
                 'product_id'      => $p->id,
                 'color_id'        => $v['color_id'] ?? null,
                 'size_id'         => $v['size_id']  ?? null,
-                'sku'             => $p->name.'-'.$p->id,
+                'sku'             => $p->name.'-'.rand(1,1000000),
                 'price'           => $vPrice,
                 'discount_price'  => $vDisc,
                 'stock'           => (int)($v['stock'] ?? 0),
