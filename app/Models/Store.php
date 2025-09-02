@@ -3,10 +3,39 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Store extends Model
 {
-    protected $guarded = [];
+    use SoftDeletes;
+
+    protected $table = 'stores';
+
+    protected $fillable = [
+        'owner_id',
+        'name',
+        'slug',
+        'logo_path',
+        'brand_color',
+        'description',
+        'address',
+        'lat',
+        'lng',
+        'is_active',
+        'delivery_settings',
+        'country',
+        'city',
+    ];
+
+    protected $casts = [
+        'lat'               => 'decimal:7',
+        'lng'               => 'decimal:7',
+        'is_active'         => 'boolean',
+        'delivery_settings' => 'array',     // stored as JSON, returned as array
+        'created_at'        => 'datetime',
+        'updated_at'        => 'datetime',
+        'deleted_at'        => 'datetime',
+    ];
     public function owner()        { return $this->belongsTo(User::class, 'owner_id'); }
 public function users()        { return $this->hasMany(User::class); } // if you link drivers via users.store_id
 public function businessHours(){ return $this->hasMany(BusinessHour::class); }

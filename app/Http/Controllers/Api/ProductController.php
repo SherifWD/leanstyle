@@ -83,7 +83,7 @@ class ProductController extends Controller
     // GET /api/store/{store}/products?view=list|grid&sort=&page=
     public function storeProducts(Store $store, Request $request)
     {
-        $q = $store->products()->where('is_active', true)->with('images');
+        $q = $store->products()->where('is_active', true)->with(['images','category','brand','variants','views']);
 
         match ($request->get('sort')) {
             'price_asc'  => $q->orderBy('price', 'asc'),

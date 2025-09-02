@@ -83,7 +83,7 @@ Route::prefix('driver')
         Route::post('cash/collect', [DriverController::class, 'collectCash']);   // {order_id, amount, note?}
         Route::post('cash/remit',   [DriverController::class, 'remitCash']);     // {amount, reference?}
     });
-    
+
     Route::prefix('owner')
     ->middleware(['auth:api','role:shop_owner'])
     ->group(function () {
@@ -94,4 +94,6 @@ Route::prefix('driver')
         Route::post('orders/{order}/state', [\App\Http\Controllers\Api\OwnerController::class, 'updateOrderState']);
 
         Route::post('products',          [\App\Http\Controllers\Api\OwnerController::class, 'createProduct']);
+        Route::put('shops/{store}', [\App\Http\Controllers\Api\OwnerController::class, 'updateShop']);
+
     });
