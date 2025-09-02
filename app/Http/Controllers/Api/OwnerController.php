@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\{Store, Product, Order, OrderStatusHistory, ProductVariant};
+use App\Models\{BusinessHour, Store, Product, Order, OrderStatusHistory, ProductVariant};
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -107,7 +107,7 @@ class OwnerController extends Controller
             'weekday'   => $bh['weekday'],
             'open_at'   => $bh['open_at']  ?? null,
             'close_at'  => $bh['close_at'] ?? null,
-            'is_closed' => $bh['is_closed'] ?? false,
+            'is_closed' => 1,
         ]);
     }
 
