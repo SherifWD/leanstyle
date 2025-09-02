@@ -329,6 +329,248 @@ private function uniqueSlug(string $base): string
         })->values(),
     ], 'Product created');
 }
+
+public function updateProduct(\App\Models\Product $product, Request $request)
+{
+    // --- Auth (same pattern you used for createShop) ---
+    $user = $request->user()
+         ?? Auth::guard('api')->user()
+         ?? (JWTAuth::check() ? JWTAuth::user() : null);
+
+    if (!$user) {
+        return $this->returnError(401, 'Unauthenticated. Provide a valid Bearer token.');
+    }
+
+    // --- Ownership (product → store → owner) ---
+    $store = \App\Models\Store::find($product->store_id);
+    if (!$store || (int)$store->owner_id !== (int)$user->id) {
+        return $this->returnError(403, 'You do not own this product/store');
+    }
+
+    // --- Validate partial update (use "sometimes") ---
+    $data = $request->validate([
+        'store_id'        => ['sometimes','required','exists:stores,id'], // allow move across owned stores
+        'name'            => ['sometimes','required','string','max:190'],
+        'description'     => ['sometimes','nullable','string'],
+        'category_id'     => ['sometimes','nullable','exists:categories,id'],
+        'brand_id'        => ['sometimes','nullable','exists:brands,id'],
+        'price'           => ['sometimes','required','numeric','min:0'],
+        'discount_price'  => ['sometimes','nullable','numeric','min:0','lte:price'],
+        'stock'           => ['sometimes','nullable','integer','min:0'],
+        'type'            => ['sometimes','nullable','string','max:50'],
+        'is_active'       => ['sometimes','boolean'],
+        'weight'          => ['sometimes','nullable','numeric','min:0'],
+
+        // single-variant quick fields (optional; only used if no "variants" array is sent)
+        'size_id'         => ['sometimes','nullable','exists:sizes,id'],
+        'color_id'        => ['sometimes','nullable','exists:colors,id'],
+        'sku'             => ['sometimes','nullable','string','max:255'],
+
+        // full variants array (for upsert/delete)
+        'variants'                         => ['sometimes','array'],
+        'variants.*.id'                    => ['sometimes','integer','exists:product_variants,id'],
+        'variants.*._delete'               => ['sometimes','boolean'], // if true and id exists → delete
+        'variants.*.color_id'              => ['sometimes','nullable','exists:colors,id'],
+        'variants.*.size_id'               => ['sometimes','nullable','exists:sizes,id'],
+        'variants.*.sku'                   => ['sometimes','nullable','string','max:255'],
+        'variants.*.price'                 => ['sometimes','nullable','numeric','min:0'],
+        'variants.*.discount_price'        => ['sometimes','nullable','numeric','min:0'],
+        'variants.*.stock'                 => ['sometimes','nullable','integer','min:0'],
+        'variants.*.is_active'             => ['sometimes','boolean'],
+    ]);
+
+    // If moving product to another store, verify new store is also owned by the user
+    if (array_key_exists('store_id', $data)) {
+        $target = \App\Models\Store::where('id', $data['store_id'])
+            ->where('owner_id', $user->id)
+            ->first();
+        if (!$target) {
+            return $this->returnError(403, 'You do not own the target store');
+        }
+    }
+
+    // Extra runtime check: ensure any provided variant IDs belong to this product
+    if (!empty($data['variants'])) {
+        $ids = collect($data['variants'])
+            ->pluck('id')
+            ->filter()
+            ->values();
+        if ($ids->isNotEmpty()) {
+            $count = \App\Models\ProductVariant::where('product_id', $product->id)
+                ->whereIn('id', $ids)
+                ->count();
+            if ($count !== $ids->count()) {
+                return $this->returnError(422, 'One or more variants do not belong to this product');
+            }
+        }
+    }
+
+    // Transaction: update product + variants atomically
+    $updatedVariants = [];
+    DB::transaction(function () use ($product, $data, &$updatedVariants) {
+        // --- Update product fields ---
+        $product->fill([
+            'store_id'       => $data['store_id']        ?? $product->store_id,
+            'name'           => array_key_exists('name', $data) ? $data['name'] : $product->name,
+            'description'    => $data['description']     ?? $product->description,
+            'category_id'    => array_key_exists('category_id', $data) ? $data['category_id'] : $product->category_id,
+            'brand_id'       => array_key_exists('brand_id', $data) ? $data['brand_id'] : $product->brand_id,
+            'price'          => array_key_exists('price', $data) ? $data['price'] : $product->price,
+            'discount_price' => array_key_exists('discount_price', $data) ? $data['discount_price'] : $product->discount_price,
+            'stock'          => array_key_exists('stock', $data) ? $data['stock'] : $product->stock,
+            'type'           => array_key_exists('type', $data) ? $data['type'] : $product->type,
+            'is_active'      => array_key_exists('is_active', $data) ? (bool)$data['is_active'] : $product->is_active,
+            'weight'         => array_key_exists('weight', $data) ? $data['weight'] : $product->weight,
+        ]);
+        $product->save();
+
+        // --- Variants sync logic ---
+        if (array_key_exists('variants', $data)) {
+            foreach ($data['variants'] as $v) {
+                // delete
+                if (!empty($v['_delete']) && !empty($v['id'])) {
+                    \App\Models\ProductVariant::where('product_id', $product->id)
+                        ->where('id', $v['id'])
+                        ->delete();
+                    continue;
+                }
+
+                // upsert (update if id, else create)
+                if (!empty($v['id'])) {
+                    $pv = \App\Models\ProductVariant::where('product_id', $product->id)
+                        ->where('id', $v['id'])
+                        ->first();
+
+                    if ($pv) {
+                        // Optional uniqueness rule for SKU (per product) – enforce at runtime
+                        if (array_key_exists('sku', $v) && $v['sku'] !== null) {
+                            $existsSku = \App\Models\ProductVariant::where('product_id', $product->id)
+                                ->where('sku', $v['sku'])
+                                ->where('id', '<>', $pv->id)
+                                ->exists();
+                            if ($existsSku) {
+                                throw \Illuminate\Validation\ValidationException::withMessages([
+                                    "variants.sku" => ["SKU '{$v['sku']}' is already used for another variant of this product."]
+                                ]);
+                            }
+                        }
+
+                        $pv->fill([
+                            'color_id'       => array_key_exists('color_id', $v) ? $v['color_id'] : $pv->color_id,
+                            'size_id'        => array_key_exists('size_id', $v) ? $v['size_id'] : $pv->size_id,
+                            'sku'            => array_key_exists('sku', $v) ? $v['sku'] : $pv->sku,
+                            'price'          => array_key_exists('price', $v) ? $v['price'] : $pv->price,
+                            'discount_price' => array_key_exists('discount_price', $v) ? $v['discount_price'] : $pv->discount_price,
+                            'stock'          => array_key_exists('stock', $v) ? (int)$v['stock'] : $pv->stock,
+                            'is_active'      => array_key_exists('is_active', $v) ? (bool)$v['is_active'] : $pv->is_active,
+                        ]);
+                        $pv->save();
+                        $updatedVariants[] = $pv;
+                    }
+                } else {
+                    // create new
+                    // default to product price if not provided
+                    $vPrice = Arr::get($v, 'price', $product->price);
+                    $vSku   = Arr::get($v, 'sku', 'SKU-'.strtoupper(Str::random(6)));
+
+                    // Optional uniqueness rule for SKU (per product)
+                    $existsSku = \App\Models\ProductVariant::where('product_id', $product->id)
+                        ->where('sku', $vSku)
+                        ->exists();
+                    if ($existsSku) {
+                        throw \Illuminate\Validation\ValidationException::withMessages([
+                            "variants.sku" => ["SKU '{$vSku}' is already used for another variant of this product."]
+                        ]);
+                    }
+
+                    $pv = \App\Models\ProductVariant::create([
+                        'product_id'      => $product->id,
+                        'color_id'        => Arr::get($v, 'color_id'),
+                        'size_id'         => Arr::get($v, 'size_id'),
+                        'sku'             => $vSku,
+                        'price'           => $vPrice,
+                        'discount_price'  => Arr::get($v, 'discount_price'),
+                        'stock'           => (int)Arr::get($v, 'stock', 0),
+                        'is_active'       => (bool)Arr::get($v, 'is_active', true),
+                    ]);
+                    $updatedVariants[] = $pv;
+                }
+            }
+        } elseif (
+            // If NO "variants" array was sent but quick single-variant fields are present,
+            // ensure there is at least one variant that mirrors these fields (create or update first variant).
+            (array_key_exists('sku', $data) || array_key_exists('size_id', $data) || array_key_exists('color_id', $data))
+        ) {
+            $first = \App\Models\ProductVariant::where('product_id', $product->id)->orderBy('id')->first();
+            if ($first) {
+                if (array_key_exists('sku', $data) && $data['sku'] !== null) {
+                    $existsSku = \App\Models\ProductVariant::where('product_id', $product->id)
+                        ->where('sku', $data['sku'])
+                        ->where('id', '<>', $first->id)
+                        ->exists();
+                    if ($existsSku) {
+                        throw \Illuminate\Validation\ValidationException::withMessages([
+                            "sku" => ["SKU '{$data['sku']}' is already used for another variant of this product."]
+                        ]);
+                    }
+                }
+
+                $first->fill([
+                    'color_id'        => array_key_exists('color_id', $data) ? $data['color_id'] : $first->color_id,
+                    'size_id'         => array_key_exists('size_id', $data) ? $data['size_id'] : $first->size_id,
+                    'sku'             => array_key_exists('sku', $data) ? $data['sku'] : $first->sku,
+                    'price'           => $product->price,                   // keep variant aligned with base if you prefer
+                    'discount_price'  => $product->discount_price,
+                ]);
+                $first->save();
+                $updatedVariants[] = $first;
+            } else {
+                $updatedVariants[] = \App\Models\ProductVariant::create([
+                    'product_id'      => $product->id,
+                    'color_id'        => Arr::get($data, 'color_id'),
+                    'size_id'         => Arr::get($data, 'size_id'),
+                    'sku'             => Arr::get($data, 'sku', 'SKU-'.strtoupper(Str::random(6))),
+                    'price'           => $product->price,
+                    'discount_price'  => $product->discount_price,
+                    'stock'           => (int)($product->stock ?? 0),
+                    'is_active'       => true,
+                ]);
+            }
+        }
+    });
+
+    // Reload fresh variants for response
+    $variants = \App\Models\ProductVariant::where('product_id', $product->id)
+        ->orderBy('id')
+        ->get();
+
+    return $this->returnData('product', [
+        'id'              => $product->id,
+        'store_id'        => $product->store_id,
+        'name'            => $product->name,
+        'description'     => $product->description,
+        'category_id'     => $product->category_id,
+        'brand_id'        => $product->brand_id,
+        'price'           => (float)$product->price,
+        'discount_price'  => $product->discount_price !== null ? (float)$product->discount_price : null,
+        'stock'           => (int)$product->stock,
+        'type'            => $product->type,
+        'weight'          => $product->weight !== null ? (float)$product->weight : null,
+        'is_active'       => (bool)$product->is_active,
+        'variants'        => $variants->map(fn($v) => [
+            'id'             => $v->id,
+            'sku'            => $v->sku,
+            'price'          => $v->price !== null ? (float)$v->price : null,
+            'discount_price' => $v->discount_price !== null ? (float)$v->discount_price : null,
+            'stock'          => (int)$v->stock,
+            'is_active'      => (bool)$v->is_active,
+            'color_id'       => $v->color_id,
+            'size_id'        => $v->size_id,
+        ])->values(),
+    ], 'Product updated');
+}
+
+
 public function updateShop(Store $store, Request $request)
 {
     // --- Auth (same approach as createShop) ---

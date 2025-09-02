@@ -96,5 +96,6 @@ Route::prefix('driver')
 
         Route::post('products',          [\App\Http\Controllers\Api\OwnerController::class, 'createProduct']);
         Route::put('shops/{store}', [\App\Http\Controllers\Api\OwnerController::class, 'updateShop']);
+        Route::put('products/{product}', [\App\Http\Controllers\Api\OwnerController::class, 'updateProduct']);
 
     });
