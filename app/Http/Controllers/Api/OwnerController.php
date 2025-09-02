@@ -331,32 +331,49 @@ private function uniqueSlug(string $base): string
 }
 public function updateShop(Store $store, Request $request)
 {
-    $user = $request->user('api');
+    // --- Auth (same approach as createShop) ---
+    $user = $request->user()
+        ?? Auth::guard('api')->user();
 
-    // Ownership check without throwing 404
+    if (!$user && ($raw = $request->bearerToken())) {
+        try { $user = JWTAuth::setToken($raw)->authenticate(); } catch (\Throwable $e) { /* ignore */ }
+    }
+    if (!$user) {
+        return $this->returnError(401, 'Unauthenticated. Provide a valid Bearer token.');
+    }
+
+    // --- Ownership check (don’t 404) ---
     if (!$store || $store->owner_id !== $user->id) {
         return $this->returnError(403, 'You do not own this store');
     }
 
+    // --- Validation (includes all fields from createShop) ---
     $data = $request->validate([
-        'name'             => ['sometimes','required','string','max:255'],
-        'slug'             => [
+        'name'              => ['sometimes','required','string','max:255'],
+        'slug'              => [
             'sometimes','nullable','string','max:255','regex:/^[a-z0-9-]+$/',
             Rule::unique('stores','slug')->ignore($store->id)->whereNull('deleted_at'),
         ],
-        'logo_path'        => ['sometimes','nullable','string','max:255'],
-        'brand_color'      => ['sometimes','nullable','string','max:255'],
-        'description'      => ['sometimes','nullable','string'],
-        'address'          => ['sometimes','nullable','string','max:255'],
-        'lat'              => ['sometimes','nullable','numeric','between:-90,90'],
-        'lng'              => ['sometimes','nullable','numeric','between:-180,180'],
-        'is_active'        => ['sometimes','boolean'],
-        'delivery_settings'=> ['sometimes','nullable'], // JSON string or array
-        'country'          => ['sometimes','nullable','string','max:255'],
-        'city'             => ['sometimes','nullable','string','max:255'],
+        'logo_path'         => ['sometimes','nullable','string','max:255'],
+        'brand_color'       => ['sometimes','nullable','string','max:255'],
+        'description'       => ['sometimes','nullable','string'],
+        'address'           => ['sometimes','nullable','string','max:255'],
+        'lat'               => ['sometimes','nullable','numeric','between:-90,90'],
+        'lng'               => ['sometimes','nullable','numeric','between:-180,180'],
+        'is_active'         => ['sometimes','boolean'],
+        'delivery_settings' => ['sometimes','nullable'], // JSON string or array
+        'country'           => ['sometimes','nullable','string','max:255'],
+        'city'              => ['sometimes','nullable','string','max:255'],
+
+        // business hours optional on update; when present we REPLACE them
+        'business_hours'                 => ['sometimes','array','min:1'],
+        'business_hours.*.weekday'       => ['required_with:business_hours','integer','between:0,6'],
+        'business_hours.*.open_at'       => ['nullable','date_format:H:i'],
+        'business_hours.*.close_at'      => ['nullable','date_format:H:i'],
+        'business_hours.*.is_closed'     => ['boolean'],
     ]);
 
-    // Normalize delivery_settings (accept JSON string or array)
+    // --- Normalize delivery_settings to array if provided ---
     if (array_key_exists('delivery_settings', $data)) {
         $value = $data['delivery_settings'];
         if (is_string($value) && $value !== '') {
@@ -370,19 +387,67 @@ public function updateShop(Store $store, Request $request)
         }
     }
 
-    // If slug provided empty, regenerate from name (or current name)
-    if (array_key_exists('slug', $data) && empty($data['slug'])) {
-        $base = Str::slug($data['name'] ?? $store->name);
-        $slug = $base ?: Str::random(8);
-        $i = 1;
-        while (Store::withTrashed()->where('slug',$slug)->where('id','<>',$store->id)->exists()) {
-            $slug = $base.'-'.$i++;
+    // --- Per-row time validation if hours were sent ---
+    if (array_key_exists('business_hours', $data)) {
+        foreach ($data['business_hours'] as $i => $bh) {
+            $closed = (bool)($bh['is_closed'] ?? false);
+            if (!$closed && !empty($bh['open_at']) && !empty($bh['close_at'])) {
+                if (strtotime($bh['close_at']) <= strtotime($bh['open_at'])) {
+                    return $this->returnError(422, "close_at must be after open_at for index $i");
+                }
+            }
         }
-        $data['slug'] = $slug;
     }
 
-    $store->fill($data);
-    $store->save();
+    // --- Slug regeneration if explicitly set to empty ---
+    if (array_key_exists('slug', $data) && ($data['slug'] === null || $data['slug'] === '')) {
+        $base = Str::slug($data['name'] ?? $store->name) ?: Str::random(8);
+        // use the same uniqueSlug logic as createShop if you have it
+        if (method_exists($this, 'uniqueSlug')) {
+            $data['slug'] = $this->uniqueSlug($base, $store->id);
+        } else {
+            $slug = $base; $i = 1;
+            while (Store::withTrashed()
+                    ->where('slug', $slug)
+                    ->where('id','<>',$store->id)
+                    ->exists()) {
+                $slug = $base.'-'.$i++;
+            }
+            $data['slug'] = $slug;
+        }
+    }
+
+    // --- Persist store + (optional) hours atomically ---
+    DB::transaction(function () use ($store, $data) {
+        // Update store fields
+        $store->fill($data);
+        $store->save();
+
+        // Replace hours only if client sent business_hours
+        if (array_key_exists('business_hours', $data)) {
+            BusinessHour::where('store_id', $store->id)->delete();
+
+            $rows = [];
+            $now  = now();
+            foreach ($data['business_hours'] as $bh) {
+                $rows[] = [
+                    'store_id'   => $store->id,
+                    'weekday'    => (int)$bh['weekday'],
+                    'open_at'    => $bh['open_at']  ?? null,
+                    'close_at'   => $bh['close_at'] ?? null,
+                    'is_closed'  => (int)($bh['is_closed'] ?? false),
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+            if (!empty($rows)) {
+                BusinessHour::insert($rows);
+            }
+        }
+    });
+
+    // Reload + return
+    $hours = $store->businessHours()->orderBy('weekday')->get();
 
     return $this->returnData('store', [
         'id'                => $store->id,
@@ -401,6 +466,7 @@ public function updateShop(Store $store, Request $request)
         'city'              => $store->city,
         'created_at'        => $store->created_at,
         'updated_at'        => $store->updated_at,
+        'business_hours'    => $hours,
     ], 'Store updated');
 }
     /**
