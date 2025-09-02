@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use App\Traits\backendTraits;
 use App\Traits\HelpersTrait;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Auth;
 
 class OwnerController extends Controller
 {
@@ -32,7 +33,7 @@ class OwnerController extends Controller
     public function createShop(Request $request)
 {
     $user = $request->user('api');
-dd($user);
+    dd(Auth::user());
     // 1) Validate (lightweight rules; handle close>open manually)
     $data = $request->validate([
         'name'              => ['required','string','max:255'],
