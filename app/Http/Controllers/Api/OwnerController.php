@@ -21,8 +21,13 @@ class OwnerController extends Controller
     /** GET /api/owner/shops */
     public function myShops(Request $request)
     {
-        $uid = $request->user('api')->id;
-
+$user = $request->user()                      // preferred (current guard)
+         ?? Auth::guard('api')->user()            // explicit api guard
+         ?? (JWTAuth::check() ? JWTAuth::user() : null); // fallback for JWTAuth
+    if (!$user) {
+        return $this->returnError(401, 'Unauthenticated. Provide a valid Bearer token.');
+    }
+    $uid = $user->id;
         $shops = Store::where('owner_id', $uid)
             ->orderBy('name')
             ->paginate($request->integer('per_page', 20));
