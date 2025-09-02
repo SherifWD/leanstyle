@@ -36,7 +36,6 @@ class OwnerController extends Controller
     $user = $request->user()                      // preferred (current guard)
          ?? Auth::guard('api')->user()            // explicit api guard
          ?? (JWTAuth::check() ? JWTAuth::user() : null); // fallback for JWTAuth
-dd($request->user(),Auth::guard('api')->user(),JWTAuth::check(),JWTAuth::user());
     if (!$user) {
         return $this->returnError(401, 'Unauthenticated. Provide a valid Bearer token.');
     }
