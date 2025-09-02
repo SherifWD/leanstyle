@@ -89,6 +89,7 @@ Route::prefix('driver')
     ->middleware(['auth:api','role:shop_owner'])
     ->group(function () {
         Route::get('shops',              [\App\Http\Controllers\Api\OwnerController::class, 'myShops']);
+        Route::post('shops',             [\App\Http\Controllers\Api\OwnerController::class, 'createShop']);
 
         Route::get('orders',             [\App\Http\Controllers\Api\OwnerController::class, 'myOrders']);
         Route::post('orders/{order}/state', [\App\Http\Controllers\Api\OwnerController::class, 'updateOrderState']);
@@ -96,9 +97,4 @@ Route::prefix('driver')
         Route::post('products',          [\App\Http\Controllers\Api\OwnerController::class, 'createProduct']);
         Route::put('shops/{store}', [\App\Http\Controllers\Api\OwnerController::class, 'updateShop']);
 
-    });
-    Route::prefix('owner')
-    ->group(function () {
-
-        Route::post('shops',             [\App\Http\Controllers\Api\OwnerController::class, 'createShop']);
     });
