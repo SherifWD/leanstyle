@@ -7,57 +7,74 @@ use App\Models\{Product, Store};
 use Illuminate\Http\Request;
 use App\Traits\backendTraits;
 use App\Traits\HelpersTrait;
+use Illuminate\Support\Facades\Auth;
+use Tymon\JWTAuth\Facades\JWTAuth;
 
 class ProductController extends Controller
 {
     use backendTraits, HelpersTrait;
 
     // GET /api/product/{product}
-    public function show(Product $product, Request $request)
-    {
-        abort_if(!$product->is_active, 404);
+    use Illuminate\Support\Facades\Auth;
+use Tymon\JWTAuth\Facades\JWTAuth;
 
-        $product->load([
-            'store:id,name,slug,logo_path,address',
-            'images:id,product_id,product_variant_id,path,sort',
-            'variants.id', 'variants.color:id,name,code', 'variants.size:id,name',
-            'brand:id,name', 'category:id,name',
-        ]);
+public function show(Product $product, Request $request)
+{
+    abort_if(!$product->is_active, 404);
 
-        // Optional: record view
-        if ($u = $request->user('api')) {
-            \App\Models\ProductView::create([
-                'user_id'    => $u->id,
-                'product_id' => $product->id,
-                'viewed_at'  => now(),
-            ]);
-        }
+    $product->load([
+        'store:id,name,slug,logo_path,address',
+        'images:id,product_id,product_variant_id,path,sort',
+        'variants:id,product_id,sku,price,discount_price,stock,color_id,size_id',
+        'variants.color:id,name,code',
+        'variants.size:id,name',
+        'brand:id,name',
+        'category:id,name',
+    ]);
 
-        $data = [
-            'id'             => $product->id,
-            'name'           => $product->name,
-            'description'    => $product->description,
-            'store'          => $product->store,
-            'images'         => $product->images->sortBy('sort')->values(),
-            'price'          => (float)$product->price,
-            'discount_price' => $product->discount_price ? (float)$product->discount_price : null,
-            'final_price'    => (float)($product->discount_price ?? $product->price),
-            'stock'          => (int)$product->stock,
-            'variants'       => $product->variants->map(fn($v) => [
-                'id'             => $v->id,
-                'sku'            => $v->sku,
-                'price'          => (float)($v->discount_price ?? $v->price ?? $product->price),
-                'discount_price' => $v->discount_price ? (float)$v->discount_price : null,
-                'stock'          => (int)$v->stock,
-                'color'          => $v->color ? ['id' => $v->color->id, 'name' => $v->color->name, 'code' => $v->color->code] : null,
-                'size'           => $v->size ? ['id' => $v->size->id, 'name' => $v->size->name] : null,
-            ])->values(),
-            'brand'          => $product->brand,
-            'category'       => $product->category,
-        ];
+    // Try to resolve user, but DO NOT fail if absent
+    $user = $request->user()
+        ?? Auth::guard('api')->user();
 
-        return $this->returnData('product', $data, "Product details");
+    if (!$user && ($raw = $request->bearerToken())) {
+        try { $user = JWTAuth::setToken($raw)->authenticate(); } catch (\Throwable $e) { /* ignore */ }
     }
+
+    // Optional: record view if authenticated
+    if ($user) {
+        \App\Models\ProductView::create([
+            'user_id'    => $user->id,
+            'product_id' => $product->id,
+            'viewed_at'  => now(),
+        ]);
+    }
+
+    $data = [
+        'id'             => $product->id,
+        'name'           => $product->name,
+        'description'    => $product->description,
+        'store'          => $product->store,
+        'images'         => $product->images->sortBy('sort')->values(),
+        'price'          => (float) $product->price,
+        'discount_price' => $product->discount_price ? (float) $product->discount_price : null,
+        'final_price'    => (float) ($product->discount_price ?? $product->price),
+        'stock'          => (int) $product->stock,
+        'variants'       => $product->variants->map(fn ($v) => [
+            'id'             => $v->id,
+            'sku'            => $v->sku,
+            'price'          => (float) ($v->discount_price ?? $v->price ?? $product->price),
+            'discount_price' => $v->discount_price ? (float) $v->discount_price : null,
+            'stock'          => (int) $v->stock,
+            'color'          => $v->color ? ['id' => $v->color->id, 'name' => $v->color->name, 'code' => $v->color->code] : null,
+            'size'           => $v->size ? ['id' => $v->size->id, 'name' => $v->size->name] : null,
+        ])->values(),
+        'brand'          => $product->brand,
+        'category'       => $product->category,
+    ];
+
+    return $this->returnData('product', $data, 'Product details');
+}
+
 
     // GET /api/product/{product}/related
     public function related(Product $product)

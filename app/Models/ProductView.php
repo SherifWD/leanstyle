@@ -7,8 +7,10 @@ use Illuminate\Database\Eloquent\Model;
 class ProductView extends Model
 {
     protected $table = 'product_views';
-    protected $guarded = [];
-
+    protected $fillable = ['user_id','product_id','viewed_at'];
+    protected $casts = [
+        'viewed_at' => 'datetime',
+    ];
     // Use timestamps, but map created_at to viewed_at and disable updated_at
     public $timestamps = true;
     const CREATED_AT = 'viewed_at';
