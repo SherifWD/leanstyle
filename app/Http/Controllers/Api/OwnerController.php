@@ -33,85 +33,86 @@ class OwnerController extends Controller
 {
     $user = $request->user('api');
 
-    // 1) Validate shop fields
+    // 1) Validate (lightweight rules; handle close>open manually)
     $data = $request->validate([
-        'name'             => ['required','string','max:255'],
-        'slug'             => [
+        'name'              => ['required','string','max:255'],
+        'slug'              => [
             'nullable','string','max:255','regex:/^[a-z0-9-]+$/',
-            Rule::unique('stores', 'slug')->whereNull('deleted_at'),
+            Rule::unique('stores','slug')->whereNull('deleted_at'),
         ],
-        'logo_path'        => ['nullable','string','max:255'],
-        'brand_color'      => ['nullable','string','max:255'],
-        'description'      => ['nullable','string'],
-        'address'          => ['nullable','string','max:255'],
-        'lat'              => ['nullable','numeric','between:-90,90'],
-        'lng'              => ['nullable','numeric','between:-180,180'],
-        'is_active'        => ['nullable','boolean'],
-        'delivery_settings'=> ['nullable'],
-        'country'          => ['nullable','string','max:255'],
-        'city'             => ['nullable','string','max:255'],
+        'logo_path'         => ['nullable','string','max:255'],
+        'brand_color'       => ['nullable','string','max:255'],
+        'description'       => ['nullable','string'],
+        'address'           => ['nullable','string','max:255'],
+        'lat'               => ['nullable','numeric','between:-90,90'],
+        'lng'               => ['nullable','numeric','between:-180,180'],
+        'is_active'         => ['nullable','boolean'],
+        'delivery_settings' => ['nullable'], // keep as-is or add normalization later
+        'country'           => ['nullable','string','max:255'],
+        'city'              => ['nullable','string','max:255'],
 
-        // Business hours array
-        'business_hours'               => ['required','array','min:1'],
-        'business_hours.*.weekday'     => ['required','integer','between:0,6'],
-        'business_hours.*.open_at'     => ['nullable','date_format:H:i'],
-        'business_hours.*.close_at'    => ['nullable','date_format:H:i','after:business_hours.*.open_at'],
-        'business_hours.*.is_closed'   => ['boolean'],
+        'business_hours'                 => ['required','array','min:1'],
+        'business_hours.*.weekday'       => ['required','integer','between:0,6'],
+        'business_hours.*.open_at'       => ['nullable','date_format:H:i'],
+        'business_hours.*.close_at'      => ['nullable','date_format:H:i'],
+        'business_hours.*.is_closed'     => ['boolean'],
     ]);
 
-    // Normalize delivery_settings
-    // if (array_key_exists('delivery_settings', $data)) {
-    //     if (is_string($data['delivery_settings']) && $data['delivery_settings'] !== '') {
-    //         $decoded = json_decode($data['delivery_settings'], true);
-    //         if (json_last_error() !== JSON_ERROR_NONE) {
-    //             return $this->returnError(422, 'delivery_settings must be valid JSON');
-    //         }
-    //         $data['delivery_settings'] = $decoded;
-    //     } elseif (!is_array($data['delivery_settings']) && !is_null($data['delivery_settings'])) {
-    //         return $this->returnError(422, 'delivery_settings must be an object/array or JSON string');
-    //     }
-    // }
-
-    // Slug auto-generate if missing
-    if (empty($data['slug'])) {
-        $base = Str::slug($data['name']);
-        $slug = $base ?: Str::random(8);
-        $i = 1;
-        while (Store::withTrashed()->where('slug',$slug)->exists()) {
-            $slug = $base.'-'.$i++;
+    // 2) Manual per-row time validation (faster + correct with wildcards)
+    foreach ($data['business_hours'] as $i => $bh) {
+        $closed = (bool)($bh['is_closed'] ?? false);
+        if (!$closed && !empty($bh['open_at']) && !empty($bh['close_at'])) {
+            if (strtotime($bh['close_at']) <= strtotime($bh['open_at'])) {
+                return $this->returnError(422, "close_at must be after open_at for index $i");
+            }
         }
-        $data['slug'] = $slug;
     }
 
-    // Create the store
-    $store = new Store();
-    $store->owner_id         = $user->id;
-    $store->name             = $data['name'];
-    $store->slug             = null;
-    $store->logo_path        = $data['logo_path']        ?? null;
-    $store->brand_color      = $data['brand_color']      ?? null;
-    $store->description      = $data['description']      ?? null;
-    $store->address          = $data['address']          ?? null;
-    $store->lat              = $data['lat']              ?? null;
-    $store->lng              = $data['lng']              ?? null;
-    $store->is_active        = array_key_exists('is_active',$data) ? (bool)$data['is_active'] : true;
-    $store->delivery_settings= null;
-    $store->country          = $data['country']          ?? null;
-    $store->city             = $data['city']             ?? null;
-    $store->save();
+    // 3) Compute slug with ONE query (and keep it!)
+    $slug = $data['slug'] ?? Str::slug($data['name']) ?: Str::random(8);
+    $slug = $this->uniqueSlug($slug);
 
-    // Insert business hours
-    foreach ($data['business_hours'] as $bh) {
-        BusinessHour::create([
-            'store_id'  => $store->id,
-            'weekday'   => $bh['weekday'],
-            'open_at'   => $bh['open_at']  ?? null,
-            'close_at'  => $bh['close_at'] ?? null,
-            'is_closed' => $bh['is_closed'] ?? false,
-        ]);
-    }
+    // 4) Create store + hours atomically, efficiently
+    $store = DB::transaction(function () use ($user, $data, $slug) {
 
-    // Return
+        $store = new Store();
+        $store->owner_id          = $user->id;
+        $store->name              = $data['name'];
+        $store->slug              = $slug; // <-- do NOT set null
+        $store->logo_path         = $data['logo_path']        ?? null;
+        $store->brand_color       = $data['brand_color']      ?? null;
+        $store->description       = $data['description']      ?? null;
+        $store->address           = $data['address']          ?? null;
+        $store->lat               = $data['lat']              ?? null;
+        $store->lng               = $data['lng']              ?? null;
+        $store->is_active         = array_key_exists('is_active',$data) ? (bool)$data['is_active'] : true;
+        $store->delivery_settings = $data['delivery_settings']?? null;
+        $store->country           = $data['country']          ?? null;
+        $store->city              = $data['city']             ?? null;
+        $store->save();
+
+        // Bulk insert business hours (1 query)
+        $rows = [];
+        $now  = now();
+        foreach ($data['business_hours'] as $bh) {
+            $rows[] = [
+                'store_id'  => $store->id,
+                'weekday'   => (int)$bh['weekday'],
+                'open_at'   => $bh['open_at']  ?? null,
+                'close_at'  => $bh['close_at'] ?? null,
+                'is_closed' => (int)($bh['is_closed'] ?? false),
+                'created_at'=> $now,
+                'updated_at'=> $now,
+            ];
+        }
+        BusinessHour::insert($rows);
+
+        return $store;
+    });
+
+    // Eager load to return
+    $hours = $store->businessHours()->orderBy('weekday')->get();
+
     return $this->returnData('store', [
         'id'                => $store->id,
         'owner_id'          => $store->owner_id,
@@ -129,8 +130,40 @@ class OwnerController extends Controller
         'city'              => $store->city,
         'created_at'        => $store->created_at,
         'updated_at'        => $store->updated_at,
-        'business_hours'    => $store->businessHours()->get(),
+        'business_hours'    => $hours,
     ], 'Store created');
+}
+
+/**
+ * Generate a unique slug with ONE DB call by scanning existing siblings.
+ * - Accepts soft-deleted rows too to avoid collisions when restored.
+ */
+private function uniqueSlug(string $base): string
+{
+    $base = Str::slug($base) ?: Str::random(8);
+
+    // Fetch all slugs that start with $base or $base-<number>
+    $existing = Store::withTrashed()
+        ->where(function($q) use ($base) {
+            $q->where('slug', $base)
+              ->orWhere('slug', 'like', $base.'-%');
+        })
+        ->pluck('slug')
+        ->all();
+
+    if (!in_array($base, $existing, true)) {
+        return $base;
+    }
+
+    // Find the highest numeric suffix and increment
+    $max = 1;
+    foreach ($existing as $s) {
+        if (preg_match('/^'.preg_quote($base, '/').'-(\d+)$/', $s, $m)) {
+            $n = (int)$m[1];
+            if ($n >= $max) $max = $n + 1;
+        }
+    }
+    return $base.'-'.$max;
 }
 
     /** GET /api/owner/orders */
