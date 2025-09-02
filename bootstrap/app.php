@@ -15,6 +15,7 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Tymon\JWTAuth\Exceptions\TokenExpiredException;
 use Tymon\JWTAuth\Exceptions\TokenInvalidException;
 use Tymon\JWTAuth\Exceptions\JWTException;
+use Illuminate\Database\QueryException;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -28,48 +29,49 @@ return Application::configure(basePath: dirname(__DIR__))
             'role' => \App\Http\Middleware\RoleMiddleware::class,
             'request.id' => \App\Http\Middleware\RequestId::class,
         ]);
+        $middleware->append(\App\Http\Middleware\RequestId::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
 
     $json = function (string $msg, int $status = 422, $extra = [], ?\Throwable $e = null) {
-        // Normalize $extra to an array
-        if (is_object($extra)) {
-            $extra = (array) $extra;
-        } elseif (!is_array($extra)) {
-            $extra = [];
+    // Normalize $extra to array
+    if (is_object($extra)) {
+        $extra = (array) $extra;
+    } elseif (!is_array($extra)) {
+        $extra = [];
+    }
+
+    $code = $extra['code'] ?? null;
+
+    $payload = [
+        'result'   => false,
+        'msg'      => $msg,
+        'code'     => $code,
+        'data'     => (object) [],
+        'trace_id' => app()->bound('request_id') ? app('request_id') : null,
+    ];
+
+    // In debug, surface extra fields under data.debug (sans 'code')
+    if (!empty($extra) && config('app.debug')) {
+        $debug = $extra;
+        unset($debug['code']);
+        if (!empty($debug)) {
+            $payload['data'] = ['debug' => $debug];
         }
+    }
 
-        $code = $extra['code'] ?? null;
+    // Also include exception details in debug
+    if ($e && config('app.debug')) {
+        $payload['data']['debug'] = array_merge($payload['data']['debug'] ?? [], [
+            'exception' => get_class($e),
+            'message'   => $e->getMessage(),
+            'file'      => $e->getFile().':'.$e->getLine(),
+            'previous'  => $e->getPrevious()?->getMessage(),
+        ]);
+    }
 
-        $payload = [
-            'result'   => false,
-            'msg'      => $msg,
-            'code'     => $code,
-            'data'     => (object) [],
-            'trace_id' => app()->bound('request_id') ? app('request_id') : null,
-        ];
-
-        // Put developer-friendly extra under data.debug (only in debug)
-        if (!empty($extra)) {
-            $debug = $extra;
-            unset($debug['code']); // don’t duplicate code under debug
-            if (!empty($debug) && config('app.debug')) {
-                $payload['data'] = ['debug' => $debug];
-            }
-        }
-
-        // Include exception details only in debug
-        if ($e && config('app.debug')) {
-            $payload['data']['debug'] = array_merge($payload['data']['debug'] ?? [], [
-                'exception' => get_class($e),
-                'message'   => $e->getMessage(),
-                'file'      => $e->getFile() . ':' . $e->getLine(),
-                'previous'  => $e->getPrevious()?->getMessage(),
-            ]);
-        }
-
-        return response()->json($payload, $status);
-    };
+    return response()->json($payload, $status);
+};
 
     // 422: Validation
     $exceptions->render(function (ValidationException $e) use ($json) {
