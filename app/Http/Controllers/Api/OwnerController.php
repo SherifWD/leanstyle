@@ -631,40 +631,123 @@ public function updateShop(Store $store, Request $request)
      */
 
     public function updateOrderState(Order $order, Request $request)
-    {
-        $uid = $request->user('api')->id;
+{
+    // Robust auth (same pattern you’ve used elsewhere)
+    $user = $request->user()
+        ?? Auth::guard('api')->user()
+        ?? (JWTAuth::check() ? JWTAuth::user() : null);
 
-        // Ensure I own the store this order belongs to
-        abort_if(!$order->store || $order->store->owner_id !== $uid, 403);
+    if (!$user) {
+        return $this->returnError(401, 'Unauthenticated. Provide a valid Bearer token.');
+    }
 
-        $data = $request->validate([
-            'state' => ['required', Rule::in(['ready_to_delivery','delivered_to_delivery_boy'])],
-        ]);
+    // Ensure the order belongs to a store owned by this user
+    $order->loadMissing('store:id,owner_id');
+    if (!$order->store || (int)$order->store->owner_id !== (int)$user->id) {
+        return $this->returnError(403, 'You do not own this order/store');
+    }
 
-        $map = [
-            'ready_to_delivery'         => 'ready_to_delivery',
-            'delivered_to_delivery_boy' => 'assigned', // when it leaves store to driver, order becomes 'assigned'
-        ];
-        $to = $map[$data['state']];
+    // Validate target status & optional reason/note
+    $data = $request->validate([
+        'to_status' => [
+            'required',
+            Rule::in([
+                'pending','preparing','ready','assigned','picked',
+                'out_for_delivery','delivered','rejected','cancelled',
+            ]),
+        ],
+        'reason'    => ['sometimes','nullable','string','max:500'],
+    ]);
 
-        DB::transaction(function () use ($order, $to, $uid, $data) {
-            $from = $order->status;
-            $order->update(['status' => $to]);
+    // Allowed transitions for SHOP OWNER (tight but practical)
+    // If you truly want "any needed state", keep this whitelist but expand as desired.
+    $allowedTransitions = [
+        'pending'          => ['preparing','cancelled','rejected'],
+        'preparing'        => ['ready','cancelled','rejected'],
+        'ready'            => ['assigned','cancelled','rejected'],
+        // Owner typically hands off at 'assigned'; further driver steps are restricted
+        'assigned'         => [],                   // driver will go to 'picked'
+        'picked'           => [],                   // driver controls next
+        'out_for_delivery' => [],                   // driver controls next
+        'delivered'        => [],                   // final
+        'rejected'         => [],                   // terminal
+        'cancelled'        => [],                   // terminal
+    ];
 
-            OrderStatusHistory::create([
-                'order_id'    => $order->id,
-                'from_status' => $from,
-                'to_status'   => $to,
-                'changed_by'  => $uid,
-                'reason'      => $data['state'] === 'ready_to_delivery'
-                    ? 'Shop marked Ready to Delivery'
-                    : 'Shop handed order to delivery boy',
-            ]);
-        });
+    $from = $order->status;
+    $to   = $data['to_status'];
 
+    // Idempotent: no change needed
+    if ($from === $to) {
         return $this->returnData('order', [
             'order_id' => $order->id,
             'status'   => $order->status,
-        ], 'Order state updated');
+            'note'     => 'No change',
+        ], 'Order state unchanged');
     }
+
+    // Validate transition
+    $nexts = $allowedTransitions[$from] ?? [];
+    if (!in_array($to, $nexts, true)) {
+        return $this->returnError(422, "Invalid transition: $from → $to");
+    }
+
+    // Persist atomically with row lock
+    DB::transaction(function () use ($order, $from, $to, $user, $data) {
+        // Re-read & lock the row to avoid races
+        $locked = Order::whereKey($order->id)->lockForUpdate()->first();
+        $current = $locked->status;
+
+        // If something changed while we were validating, re-check
+        $allowedTransitions = [
+            'pending'          => ['preparing','cancelled','rejected'],
+            'preparing'        => ['ready','cancelled','rejected'],
+            'ready'            => ['assigned','cancelled','rejected'],
+            'assigned'         => [],
+            'picked'           => [],
+            'out_for_delivery' => [],
+            'delivered'        => [],
+            'rejected'         => [],
+            'cancelled'        => [],
+        ];
+
+        if ($current !== $from) {
+            // Another process changed it—fail gracefully
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'to_status' => ["Order status changed concurrently ($from → $current). Please retry."],
+            ]);
+        }
+        if (!in_array($to, $allowedTransitions[$current] ?? [], true)) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'to_status' => ["Invalid transition: $current → $to"],
+            ]);
+        }
+
+        $locked->status = $to;
+        $locked->save();
+
+        OrderStatusHistory::create([
+            'order_id'    => $locked->id,
+            'from_status' => $from,
+            'to_status'   => $to,
+            'changed_by'  => $user->id,
+            'reason'      => $data['reason']
+                ?? match ($to) {
+                    'ready'     => 'Shop marked order ready',
+                    'assigned'  => 'Shop handed order to delivery boy',
+                    'cancelled' => 'Shop cancelled order',
+                    'rejected'  => 'Shop rejected order',
+                    default     => 'Status updated by shop owner',
+                },
+        ]);
+    });
+
+    // Refresh and return
+    $order->refresh();
+
+    return $this->returnData('order', [
+        'order_id' => $order->id,
+        'status'   => $order->status,
+    ], 'Order state updated');
+}
 }
