@@ -630,13 +630,7 @@ public function updateShop(Store $store, Request $request)
      * Body: { state: "ready_to_delivery" | "delivered_to_delivery_boy" }
      */
 
-    use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\Rule;
-use Tymon\JWTAuth\Facades\JWTAuth;
-use App\Models\Order;
-use App\Models\OrderStatusHistory;
+    
 
 public function updateOrderState(Order $order, Request $request)
 {
