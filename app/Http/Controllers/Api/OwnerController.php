@@ -185,7 +185,7 @@ private function uniqueSlug(string $base): string
 
         $q = Order::query()
             ->whereHas('store', fn($s) => $s->where('owner_id', $uid))
-            ->with(['store','customer','items','assignment','driver'])
+            ->with(['store','customer','items.product','items.productVariant','assignment','driver'])
             ->latest('id');
 
         if ($status) $q->where('status', $status);
