@@ -16,7 +16,6 @@ return new class extends Migration
             $table->unsignedBigInteger('product_id');
             $table->unsignedBigInteger('color_id')->nullable();
             $table->unsignedBigInteger('size_id')->nullable();
-            $table->string('sku')->unique();
             $table->decimal('price', 12, 2)->nullable(); // if null, inherit product price
             $table->decimal('discount_price', 12, 2)->nullable();
             $table->unsignedInteger('stock')->default(0);

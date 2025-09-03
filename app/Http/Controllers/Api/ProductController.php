@@ -59,7 +59,6 @@ public function show(Product $product, Request $request)
         'stock'          => (int) $product->stock,
         'variants'       => $product->variants->map(fn ($v) => [
             'id'             => $v->id,
-            'sku'            => $v->sku,
             'price'          => (float) ($v->discount_price ?? $v->price ?? $product->price),
             'discount_price' => $v->discount_price ? (float) $v->discount_price : null,
             'stock'          => (int) $v->stock,

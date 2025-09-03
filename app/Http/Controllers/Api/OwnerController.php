@@ -233,7 +233,6 @@ private function uniqueSlug(string $base): string
         // NEW: quick single-variant fields (optional)
         'size_id'         => ['nullable','exists:sizes,id'],
         'color_id'        => ['nullable','exists:colors,id'],
-        'sku'             => ['nullable','string','max:255'],
 
         // NEW: or full variants array
         'variants'                 => ['nullable','array'],
@@ -280,7 +279,6 @@ private function uniqueSlug(string $base): string
                 'product_id'      => $p->id,
                 'color_id'        => $v['color_id'] ?? null,
                 'size_id'         => $v['size_id']  ?? null,
-                'sku'             => $p->name.'-'.rand(1,1000000),
                 'price'           => $vPrice,
                 'discount_price'  => $vDisc,
                 'stock'           => (int)($v['stock'] ?? 0),
@@ -289,12 +287,11 @@ private function uniqueSlug(string $base): string
         }
     } else {
         // If single-variant fields are provided, create one variant
-        if (!empty($data['sku']) || !empty($data['size_id']) || !empty($data['color_id'])) {
+        if (!empty($data['size_id']) || !empty($data['color_id'])) {
             $createdVariants[] = ProductVariant::create([
                 'product_id'      => $p->id,
                 'color_id'        => $data['color_id'] ?? null,
                 'size_id'         => $data['size_id']  ?? null,
-                'sku'             => $data['sku']      ?? 'SKU-'.strtoupper(Str::random(6)),
                 'price'           => $p->price,
                 'discount_price'  => $p->discount_price,
                 'stock'           => (int)($data['stock'] ?? 0),
@@ -318,7 +315,6 @@ private function uniqueSlug(string $base): string
         'variants'        => collect($createdVariants)->map(function ($v) {
             return [
                 'id'             => $v->id,
-                'sku'            => $v->sku,
                 'price'          => $v->price ? (float)$v->price : null,
                 'discount_price' => $v->discount_price ? (float)$v->discount_price : null,
                 'stock'          => (int)$v->stock,
@@ -365,7 +361,6 @@ public function updateProduct(\App\Models\Product $product, Request $request)
         // quick single-variant fields (used only if "variants" not sent)
         'size_id'         => ['sometimes','nullable','exists:sizes,id'],
         'color_id'        => ['sometimes','nullable','exists:colors,id'],
-        'sku'             => ['sometimes','nullable','string','max:255'],
 
         // full variants array (upsert/delete)
         'variants'                         => ['sometimes','array'],
@@ -439,19 +434,7 @@ public function updateProduct(\App\Models\Product $product, Request $request)
                         ->first();
 
                     if ($pv) {
-                        // only check & set SKU if a non-empty value was sent
-                        if (array_key_exists('sku', $v) && filled($v['sku'])) {
-                            $existsSku = \App\Models\ProductVariant::where('product_id', $product->id)
-                                ->where('sku', $v['sku'])
-                                ->where('id', '<>', $pv->id)
-                                ->exists();
-                            if ($existsSku) {
-                                throw \Illuminate\Validation\ValidationException::withMessages([
-                                    "variants.sku" => ["SKU '{$v['sku']}' is already used for another variant of this product."]
-                                ]);
-                            }
-                            $pv->sku = $v['sku'];
-                        }
+                        
 
                         $pv->fill([
                             'color_id'       => array_key_exists('color_id', $v) ? $v['color_id'] : $pv->color_id,
@@ -466,27 +449,14 @@ public function updateProduct(\App\Models\Product $product, Request $request)
                 } else {
                     // create new
                     $vPrice = Arr::get($v, 'price', $product->price);
-                    $vSku   = (array_key_exists('sku', $v) && filled($v['sku']))
-                        ? $v['sku']
-                        : 'SKU-'.strtoupper(Str::random(6));
+                    
 
-                    // only check uniqueness if client actually provided a SKU
-                    if (array_key_exists('sku', $v) && filled($v['sku'])) {
-                        $existsSku = \App\Models\ProductVariant::where('product_id', $product->id)
-                            ->where('sku', $vSku)
-                            ->exists();
-                        if ($existsSku) {
-                            throw \Illuminate\Validation\ValidationException::withMessages([
-                                "variants.sku" => ["SKU '{$vSku}' is already used for another variant of this product."]
-                            ]);
-                        }
-                    }
+                    
 
                     \App\Models\ProductVariant::create([
                         'product_id'      => $product->id,
                         'color_id'        => Arr::get($v, 'color_id'),
                         'size_id'         => Arr::get($v, 'size_id'),
-                        'sku'             => $vSku,
                         'price'           => $vPrice,
                         'discount_price'  => Arr::get($v, 'discount_price'),
                         'stock'           => (int) Arr::get($v, 'stock', 0),
@@ -495,49 +465,7 @@ public function updateProduct(\App\Models\Product $product, Request $request)
                 }
             }
         }
-        // NO variants array → only apply quick fields if explicitly sent
-        elseif (array_key_exists('sku', $data) || array_key_exists('size_id', $data) || array_key_exists('color_id', $data)) {
-            $first = \App\Models\ProductVariant::where('product_id', $product->id)->orderBy('id')->first();
-            if ($first) {
-                // only check & change SKU if a non-empty value was sent
-                if (array_key_exists('sku', $data) && filled($data['sku'])) {
-                    $existsSku = \App\Models\ProductVariant::where('product_id', $product->id)
-                        ->where('sku', $data['sku'])
-                        ->where('id', '<>', $first->id)
-                        ->exists();
-                    if ($existsSku) {
-                        throw \Illuminate\Validation\ValidationException::withMessages([
-                            "sku" => ["SKU '{$data['sku']}' is already used for another variant of this product."]
-                        ]);
-                    }
-                    $first->sku = $data['sku'];
-                }
-
-                $first->fill([
-                    'color_id'       => array_key_exists('color_id', $data) ? $data['color_id'] : $first->color_id,
-                    'size_id'        => array_key_exists('size_id', $data) ? $data['size_id'] : $first->size_id,
-                    'price'          => $product->price,
-                    'discount_price' => $product->discount_price,
-                ]);
-                $first->save();
-            } else {
-                // creating the first variant; auto-generate SKU if not provided
-                $genSku = (array_key_exists('sku', $data) && filled($data['sku']))
-                    ? $data['sku']
-                    : 'SKU-'.strtoupper(Str::random(6));
-
-                \App\Models\ProductVariant::create([
-                    'product_id'      => $product->id,
-                    'color_id'        => Arr::get($data, 'color_id'),
-                    'size_id'         => Arr::get($data, 'size_id'),
-                    'sku'             => $genSku,
-                    'price'           => $product->price,
-                    'discount_price'  => $product->discount_price,
-                    'stock'           => (int) ($product->stock ?? 0),
-                    'is_active'       => true,
-                ]);
-            }
-        }
+        
     });
 
     // Reload for response
@@ -560,7 +488,6 @@ public function updateProduct(\App\Models\Product $product, Request $request)
         'is_active'       => (bool) $product->is_active,
         'variants'        => $variants->map(fn ($v) => [
             'id'             => $v->id,
-            'sku'            => $v->sku,
             'price'          => $v->price !== null ? (float) $v->price : null,
             'discount_price' => $v->discount_price !== null ? (float) $v->discount_price : null,
             'stock'          => (int) $v->stock,

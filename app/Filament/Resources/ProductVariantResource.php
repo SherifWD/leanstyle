@@ -44,10 +44,7 @@ class ProductVariantResource extends Resource
                     ->preload()
                     ->default(null),
 
-                Forms\Components\TextInput::make('sku')
-                    ->label('SKU')
-                    ->required()
-                    ->maxLength(255),
+                
 
                 Forms\Components\TextInput::make('price')
                     ->numeric()
@@ -87,9 +84,7 @@ class ProductVariantResource extends Resource
                     ->sortable()
                     ->searchable(),
 
-                Tables\Columns\TextColumn::make('sku')
-                    ->label('SKU')
-                    ->searchable(),
+                
 
                 Tables\Columns\TextColumn::make('price')
                     ->money()
