@@ -185,27 +185,12 @@ private function uniqueSlug(string $base): string
 
         $q = Order::query()
             ->whereHas('store', fn($s) => $s->where('owner_id', $uid))
-            ->with(['store:id,name','customer:id,name,phone'])
+            ->with(['store','customer','items','assignment','driver'])
             ->latest('id');
 
         if ($status) $q->where('status', $status);
 
-        $orders = $q->paginate($request->integer('per_page', 20))
-            ->through(function (Order $o) {
-                return [
-                    'id'          => $o->id,
-                    'order_code'  => $o->order_code,
-                    'status'      => $o->status,
-                    'grand_total' => (float)$o->grand_total,
-                    'store'       => $o->store?->only('id','name'),
-                    'customer'    => [
-                        'id'    => $o->customer_id,
-                        'name'  => $o->customer?->name,
-                        'phone' => $o->customer?->phone,
-                    ],
-                    'created_at'  => $o->created_at?->toIso8601String(),
-                ];
-            });
+        $orders = $q->paginate($request->integer('per_page', 20));
 
         return $this->returnData('orders', $orders, 'Store orders');
     }
