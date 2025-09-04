@@ -23,7 +23,7 @@ public function show(Product $product, Request $request)
     $product->load([
         'store:id,name,slug,logo_path,address',
         'images:id,product_id,product_variant_id,path,sort',
-        'variants:id,product_id,sku,price,discount_price,stock,color_id,size_id',
+        'variants:id,product_id,price,discount_price,stock,color_id,size_id',
         'variants.color:id,name,code',
         'variants.size:id,name',
         'brand:id,name',

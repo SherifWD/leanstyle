@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\{BusinessHour, Store, Product, Order, OrderStatusHistory, ProductVariant};
+use App\Models\ProductImage;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -28,7 +29,7 @@ $user = $request->user()                      // preferred (current guard)
         return $this->returnError(401, 'Unauthenticated. Provide a valid Bearer token.');
     }
     $uid = $user->id;
-        $shops = Store::where('owner_id', $uid)
+        $shops = Store::with(['categories','businessHours','products','brands'])->where('owner_id', $uid)
             ->orderBy('name')
             ->paginate($request->integer('per_page', 20));
 
@@ -51,7 +52,7 @@ $user = $request->user()                      // preferred (current guard)
             'nullable','string','max:255','regex:/^[a-z0-9-]+$/',
             Rule::unique('stores','slug')->whereNull('deleted_at'),
         ],
-        'logo_path'         => ['nullable','string','max:255'],
+        'logo_path'         => ['nullable','file','max:255'],
         'brand_color'       => ['nullable','string','max:255'],
         'description'       => ['nullable','string'],
         'address'           => ['nullable','string','max:255'],
@@ -89,8 +90,12 @@ $user = $request->user()                      // preferred (current guard)
         $store = new Store();
         $store->owner_id          = $user->id;
         $store->name              = $data['name'];
-        $store->slug              = $slug; // <-- do NOT set null
-        $store->logo_path         = $data['logo_path']        ?? null;
+        $store->slug              = $slug; 
+        $store->logo_path = $data['logo_path'];
+        // if ($data['logo_path']) {
+        //     $imagePath = $data['logo_path']->store('images');
+        //     $store->forceFill(['logo_path' => $imagePath]);
+        // }
         $store->brand_color       = $data['brand_color']      ?? null;
         $store->description       = $data['description']      ?? null;
         $store->address           = $data['address']          ?? null;
@@ -284,7 +289,14 @@ private function uniqueSlug(string $base): string
             ]);
         }
     }
-
+    // if($data['images']){
+    //     foreach($data['images'] as $image){
+    //         $p_image = new ProductImage();
+    //         $imagePath = $request->file('image')->store('images');
+    //         $p_image->product_id = $p->id;
+    //         $p_image->path = $imagePath;
+    //     }
+    // }
     return $this->returnData('product', [
         'id'              => $p->id,
         'name'            => $p->name,
@@ -403,6 +415,7 @@ public function updateProduct(\App\Models\Product $product, Request $request)
 
         // --- Variants sync logic ---
         if (array_key_exists('variants', $data)) {
+            \App\Models\ProductVariant::where('product_id',$product->id)->delete();
             foreach ($data['variants'] as $v) {
                 // delete
                 if (!empty($v['_delete']) && !empty($v['id'])) {

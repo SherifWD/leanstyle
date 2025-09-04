@@ -11,4 +11,9 @@ class ProductImage extends Model
     public function product()       { return $this->belongsTo(Product::class); }
 public function variant()       { return $this->belongsTo(ProductVariant::class, 'product_variant_id'); }
 
+ public function getImageAttribute($val)
+    {
+        return ($val !== null) ? asset('/'.$val) : "";
+
+    }
 }

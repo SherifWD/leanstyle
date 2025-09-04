@@ -44,4 +44,14 @@ public function categories()   { return $this->hasMany(Category::class); }
 public function brands()       { return $this->hasMany(Brand::class); }
 public function orders()       { return $this->hasMany(Order::class); }
 
+// public function setLogoPathAttribute($val)
+// {
+//     $this->attributes['logo_path'] = $val;
+// }
+
+//  public function getLogoPathAttribute($val)
+//     {
+//         return ($val !== null) ? asset('/'.$val) : "";
+
+//     }
 }
