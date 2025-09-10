@@ -340,4 +340,53 @@ private function defaultVerifiedAddress(\App\Models\Customer $customer)
     return $this->returnData('order', $result, 'Order placed');
 }
 
+
+    /** ---------- helpers ---------- */
+
+    private function recalculate(Cart $cart): void
+    {
+        $subtotal = (float) $cart->items->sum('line_total');
+        $discount = 0.0; // apply coupons here if integrated
+        $taxRate  = (float) (\App\Models\Setting::firstWhere('key','tax_rate')->value ?? 0);
+        $delivery = (float) (\App\Models\Setting::firstWhere('key','default_delivery_fee')->value ?? 0);
+
+        $tax   = round(($subtotal - $discount) * ($taxRate / 100), 2);
+        $grand = max(0, $subtotal - $discount + $tax + $delivery);
+
+        $cart->update([
+            'subtotal'       => $subtotal,
+            'discount_total' => $discount,
+            'tax_total'      => $tax,
+            'delivery_fee'   => $delivery,
+            'grand_total'    => $grand,
+        ]);
+        $cart->load('items');
+    }
+
+    private function payload(Cart $cart)
+    {
+        return [
+            'id'    => $cart->id,
+            'items' => $cart->items->map(fn($i) => [
+                'id'                 => $i->id,
+                'product_id'         => $i->product_id,
+                'product_variant_id' => $i->product_variant_id,
+                'name'               => $i->name,
+                'options'            => $i->options,
+                'qty'                => (int)$i->qty,
+                'unit_price'         => (float)$i->unit_price,
+                'discount'           => (float)$i->discount,
+                'line_total'         => (float)$i->line_total,
+            ]),
+            'totals' => [
+                'subtotal'        => (float)$cart->subtotal,
+                'discount_total'  => (float)$cart->discount_total,
+                'tax_total'       => (float)$cart->tax_total,
+                'delivery_fee'    => (float)$cart->delivery_fee,
+                'grand_total'     => (float)$cart->grand_total,
+            ],
+            'selected_address_id' => $cart->address_id,
+            'payment_method'      => $cart->payment_method,
+        ];
+    }
 }
