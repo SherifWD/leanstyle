@@ -13,6 +13,7 @@ use App\Traits\backendTraits;
 use App\Traits\HelpersTrait;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
 use Tymon\JWTAuth\Facades\JWTAuth;
 
 class OwnerController extends Controller
