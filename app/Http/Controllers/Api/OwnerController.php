@@ -13,7 +13,6 @@ use App\Traits\backendTraits;
 use App\Traits\HelpersTrait;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Storage;
 use Tymon\JWTAuth\Facades\JWTAuth;
 
 class OwnerController extends Controller
@@ -56,7 +55,7 @@ $user = $request->user()                      // preferred (current guard)
             'nullable','string','max:255','regex:/^[a-z0-9-]+$/',
             Rule::unique('stores','slug')->whereNull('deleted_at'),
         ],
-        // image max 5MB; adjust as needed
+        // image max 5MB
         'logo_path'         => ['nullable','image','mimes:jpg,jpeg,png,webp,avif','max:5120'],
         'brand_color'       => ['nullable','string','max:255'],
         'description'       => ['nullable','string'],
@@ -64,7 +63,7 @@ $user = $request->user()                      // preferred (current guard)
         'lat'               => ['nullable','numeric','between:-90,90'],
         'lng'               => ['nullable','numeric','between:-180,180'],
         'is_active'         => ['nullable','boolean'],
-        'delivery_settings' => ['nullable'], // keep raw; cast in model if needed
+        'delivery_settings' => ['nullable'],
         'country'           => ['nullable','string','max:255'],
         'city'              => ['nullable','string','max:255'],
 
@@ -89,13 +88,20 @@ $user = $request->user()                      // preferred (current guard)
     $slug = $data['slug'] ?? Str::slug($data['name']) ?: Str::random(8);
     $slug = $this->uniqueSlug($slug);
 
-    // 4) Handle logo upload to public/store (relative path like "store/abc.jpg")
-    $uploadedPath = null;
-    
-    if ($request->hasFile('logo_path')) {
-            $imagePath = $request->file('logo_path')->store('store');
-            $user->image = $imagePath;
-        }
+    // 4) Upload to public/store via "local" disk (rooted at public_path('/'))
+    //     Ensure directory exists, generate stable filename
+    $uploadedPath = null; // will be like "store/slug-XXXXXX.png"
+    if ($request->hasFile('logo_path') && $request->file('logo_path')->isValid()) {
+        $file = $request->file('logo_path');
+        $ext  = strtolower($file->getClientOriginalExtension() ?: $file->extension());
+        $filename = $slug . '-' . Str::random(8) . '.' . $ext;
+
+        // make sure "store" dir exists under public/
+        Storage::disk('local')->makeDirectory('store'); // local disk -> public root
+        // save to public/store/<filename>
+        $uploadedPath = Storage::disk('local')->putFileAs('store', $file, $filename);
+        // $uploadedPath now equals "store/<filename>"
+    }
 
     try {
         // 5) Create store + hours atomically
@@ -105,14 +111,14 @@ $user = $request->user()                      // preferred (current guard)
             $store->owner_id          = $user->id;
             $store->name              = $data['name'];
             $store->slug              = $slug;
-            $store->logo_path         = $uploadedPath; // stored relative path (e.g., "store/xxx.jpg")
+            $store->logo_path         = $uploadedPath; // e.g., "store/xxx.jpg" in public/
             $store->brand_color       = $data['brand_color']      ?? null;
             $store->description       = $data['description']      ?? null;
             $store->address           = $data['address']          ?? null;
             $store->lat               = $data['lat']              ?? null;
             $store->lng               = $data['lng']              ?? null;
             $store->is_active         = array_key_exists('is_active',$data) ? (bool)$data['is_active'] : true;
-            $store->delivery_settings = $data['delivery_settings']?? null; // consider JSON cast on the model
+            $store->delivery_settings = $data['delivery_settings']?? null;
             $store->country           = $data['country']          ?? null;
             $store->city              = $data['city']             ?? null;
             $store->save();
@@ -136,10 +142,9 @@ $user = $request->user()                      // preferred (current guard)
             return $store;
         });
     } catch (\Throwable $e) {
-        // If DB failed after file saved, clean up file
+        // If DB failed after file saved, clean up file (from public/)
         if ($uploadedPath) {
-            
-            Storage::disk('public')->delete($uploadedPath);
+            Storage::disk('local')->delete($uploadedPath);
         }
         throw $e;
     }
@@ -152,8 +157,8 @@ $user = $request->user()                      // preferred (current guard)
         'owner_id'          => $store->owner_id,
         'name'              => $store->name,
         'slug'              => $store->slug,
-        'logo_path'         => $store->logo_path, // e.g., "store/abc.jpg"
-        'logo_url'          => $store->logo_path ? Storage::disk('public')->url($store->logo_path) : null, // e.g., "/storage/store/abc.jpg"
+        'logo_path'         => $store->logo_path, // "store/abc.jpg"
+        'logo_url'          => $store->logo_path ? asset($store->logo_path) : null, // "/store/abc.jpg"
         'brand_color'       => $store->brand_color,
         'description'       => $store->description,
         'address'           => $store->address,
