@@ -283,17 +283,32 @@ private function defaultVerifiedAddress(\App\Models\Customer $customer)
                 }
             }
 
-            OrderItem::create([
-                'order_id'           => $order->id,
-                'product_id'         => $ci->product_id,
-                'product_variant_id' => $ci->product_variant_id,
-                'name'               => $ci->name,
-                'options'            => $ci->options,
-                'qty'                => $ci->qty,
-                'unit_price'         => $ci->unit_price,
-                'discount'           => $ci->discount,
-                'line_total'         => $ci->line_total,
-            ]);
+            $unit = $ci->unit_price;
+if ($unit <= 0) {
+    $product = Product::find($ci->product_id);
+    $variant = $ci->product_variant_id ? ProductVariant::find($ci->product_variant_id) : null;
+    $unit = collect([
+        $variant?->discounted_price,
+        $variant?->discount_price,
+        $variant?->price,
+        $product?->discounted_price,
+        $product?->discount_price,
+        $product?->price,
+    ])->first(fn($v) => $v !== null) ?? 0.0;
+}
+
+OrderItem::create([
+    'order_id'           => $order->id,
+    'product_id'         => $ci->product_id,
+    'product_variant_id' => $ci->product_variant_id,
+    'name'               => $ci->name,
+    'options'            => $ci->options, // model cast handles JSON
+    'qty'                => $ci->qty,
+    'unit_price'         => $unit,
+    'discount'           => $ci->discount,
+    'line_total'         => max(0, ($unit - (float)$ci->discount) * $ci->qty),
+]);
+
         }
 
         // Status history (changed_by = customer)
