@@ -90,7 +90,7 @@ class OrderController extends Controller
         $customer = $this->meCustomer($request);
         abort_if($order->customer_id !== $customer->id, 403);
 
-        $order->load(['items','store:id,name,logo_path,address','assignment.driver:id,name,phone']);
+        $order->load(['customer','items','store:id,name,logo_path,address','assignment.driver:id,name,phone']);
 
         $data = [
             'id'             => $order->id,
@@ -118,6 +118,7 @@ class OrderController extends Controller
             ]),
             'store'  => $order->store,
             'driver' => $order->assignment?->driver,
+            'customer' => $order->customer
         ];
 
         return $this->returnData('order', $data, "Order details");
