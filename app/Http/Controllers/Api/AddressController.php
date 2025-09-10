@@ -69,7 +69,15 @@ class AddressController extends Controller
 
         return $this->returnData('address', $address, 'Address Created');
     }
-
+    public function sendOTP(){
+        return $this->returnData('otp','111111',200);
+    }
+    public function updateIsVerified(Request $request){
+        if($request->otp == "111111" && $request->address_id){
+            $address = CustomerAddress::find($request->address_id)->update(['is_verified'=>1]);
+        }
+        return $this->returnSuccessMessage('Address Verified');
+    }
     /** PUT /api/addresses/{address} */
     public function update(CustomerAddress $address, Request $request)
     {
@@ -94,6 +102,7 @@ class AddressController extends Controller
 
         return $this->returnData('address', $address->fresh(), 'Address Updated');
     }
+    
 
     /** DELETE /api/addresses/{address} */
     public function destroy(CustomerAddress $address, Request $request)
