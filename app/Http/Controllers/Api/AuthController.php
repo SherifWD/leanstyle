@@ -96,14 +96,12 @@ public function forgotReset(Request $request)
             'name'     => ['required','string','max:190'],
             'phone'    => ['required','string','max:30','unique:users,phone'],
             'password' => ['required','string','min:8'],
-            'role'     => ['nullable', Rule::in(['customer'])],
         ]);
 
         $customer = new Customer();
         $customer->name     = $data['name'];
         $customer->phone    = $data['phone'];
         $customer->password = Hash::make($data['password']);
-        $customer->role     = 'customer';
         $customer->save();
 
         $token = JWTAuth::fromUser($customer);
