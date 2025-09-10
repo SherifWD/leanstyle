@@ -69,6 +69,8 @@ Route::middleware('auth:api,customer')->group(function () {
 
     // Orders
     Route::get('orders',          [OrderController::class, 'index']);
+    Route::get('no-orders',          [OrderController::class, 'noCusOrder']);
+    Route::get('not-rej-orders',          [OrderController::class, 'noCusRejOrder']);
     Route::get('orders/{order}',  [OrderController::class, 'show']);
     Route::get('orders/{order}/timeline', [OrderController::class, 'timeline']);
 });

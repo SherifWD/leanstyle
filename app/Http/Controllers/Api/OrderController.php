@@ -40,7 +40,7 @@ class OrderController extends Controller
 
         return $this->returnData('orders', $orders, "Orders list");
     }
-    public function noOrder(Request $request)
+    public function noCusOrder(Request $request)
 {
     $customer = $this->meCustomer($request);
 
@@ -49,6 +49,27 @@ class OrderController extends Controller
     $orders = Order::query()
         ->where('customer_id', $customer->id)
         ->whereIn('status', $statuses)
+        ->latest('id')
+        ->paginate($request->integer('per_page', 15))
+        ->through(fn ($o) => [
+            'id'          => $o->id,
+            'order_code'  => $o->order_code,
+            'status'      => $o->status,
+            'grand_total' => (float) $o->grand_total,
+            'created_at'  => $o->created_at?->toIso8601String(),
+        ]);
+
+    return $this->returnData('orders', $orders, 'Orders list');
+}
+    public function noCusRejOrder(Request $request)
+{
+    $customer = $this->meCustomer($request);
+
+    $statuses = ['rejected', 'cancelled', 'delivered'];
+
+    $orders = Order::query()
+        ->where('customer_id', $customer->id)
+        ->whereNotIn('status', $statuses)
         ->latest('id')
         ->paginate($request->integer('per_page', 15))
         ->through(fn ($o) => [
