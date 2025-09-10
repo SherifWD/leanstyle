@@ -95,7 +95,7 @@ public function products(Request $request)
     $q = Product::query()->where('is_active', true);
 
     // Effective price uses discounted_price when not null, else price
-    $effectivePriceSql = 'COALESCE(discounted_price, price)';
+    $effectivePriceSql = 'COALESCE(discount_price, price)';
 
     $q->when($request->filled('q'), fn($x) =>
         $x->where(function ($inner) use ($request) {
