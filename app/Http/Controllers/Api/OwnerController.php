@@ -353,6 +353,7 @@ private function uniqueSlug(string $base): string
             $imagePath = $image->store('products');
             $p_image->product_id = $p->id;
             $p_image->path = $imagePath;
+            $p_image->save();
         }
     }
     return $this->returnData('product', [
