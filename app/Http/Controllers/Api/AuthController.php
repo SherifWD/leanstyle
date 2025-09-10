@@ -96,20 +96,20 @@ public function forgotReset(Request $request)
             'name'     => ['required','string','max:190'],
             'phone'    => ['required','string','max:30','unique:users,phone'],
             'password' => ['required','string','min:8'],
-            'role'     => ['nullable', Rule::in(['shop_owner','delivery_boy','admin'])],
+            'role'     => ['nullable', Rule::in(['customer'])],
         ]);
 
-        $user = new User();
-        $user->name     = $data['name'];
-        $user->phone    = $data['phone'];
-        $user->password = Hash::make($data['password']);
-        $user->role     = $data['role'] ?? 'shop_owner';
-        $user->save();
+        $customer = new Customer();
+        $customer->name     = $data['name'];
+        $customer->phone    = $data['phone'];
+        $customer->password = Hash::make($data['password']);
+        $customer->role     = 'customer';
+        $customer->save();
 
-        $token = JWTAuth::fromUser($user);
+        $token = JWTAuth::fromUser($customer);
 
         return $this->returnData('auth', [
-            'user'  => $this->userPayload($user),
+            'user'  => $this->customerPayload($customer),
             'token' => [
                 'access_token' => $token,
                 'token_type'   => 'bearer',
@@ -264,6 +264,21 @@ public function login(Request $request)
     }
 
     private function userPayload(?User $user): array
+    {
+        if (!$user) return [];
+
+        return [
+            'id'           => $user->id,
+            'name'         => $user->name,
+            'phone'        => $user->phone,
+            'email'        => $user->email,
+            'role'         => $user->role,
+            'store_id'     => $user->store_id,
+            'is_blocked'   => (bool)$user->is_blocked,
+            'is_available' => (bool)$user->is_available,
+        ];
+    }
+    private function customerPayload(?Customer $user): array
     {
         if (!$user) return [];
 
