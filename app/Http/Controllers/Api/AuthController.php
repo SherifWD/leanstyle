@@ -155,7 +155,7 @@ public function forgotReset(Request $request)
 // }
 
 
-public function loginPhone(Request $request)
+public function login(Request $request)
 {
     $data = $request->validate([
         'login'    => ['required','string'],
