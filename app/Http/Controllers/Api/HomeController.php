@@ -103,6 +103,8 @@ class HomeController extends Controller
         $q->when($request->filled('brand_id'), fn($x) => $x->where('brand_id', $request->brand_id));
         $q->when($request->filled('min_price'), fn($x) => $x->where('price', '>=', $request->min_price));
         $q->when($request->filled('max_price'), fn($x) => $x->where('price', '<=', $request->max_price));
+        $q->when($request->filled('color_id'), fn($x) => $x->where('color_id', $request->color_id));
+        $q->when($request->filled('size_id'), fn($x) => $x->where('size_id', $request->size_id));
 
         match ($request->get('sort')) {
             'price_asc'  => $q->orderBy('price', 'asc'),

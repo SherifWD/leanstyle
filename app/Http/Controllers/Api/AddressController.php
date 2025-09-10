@@ -52,6 +52,8 @@ class AddressController extends Controller
         $customer = $this->meCustomer($request);
 
         $data = $request->validate([
+            'name' => ['nullable','string'],
+            'phone' => ['nullable'],
             'label'        => ['nullable','string','max:60'],
             'address_line' => ['required','string','max:500'],
             'lat'          => ['nullable','numeric'],
@@ -75,6 +77,8 @@ class AddressController extends Controller
         abort_if($address->customer_id !== $customer->id, 403);
 
         $data = $request->validate([
+            'name' => ['nullable','string'],
+            'phone' => ['nullable'],
             'label'        => ['nullable','string','max:60'],
             'address_line' => ['required','string','max:500'],
             'lat'          => ['nullable','numeric'],
