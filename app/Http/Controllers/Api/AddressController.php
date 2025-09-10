@@ -69,7 +69,7 @@ class AddressController extends Controller
 
         return $this->returnData('address', $address, 'Address Created');
     }
-    public function sendOTP(){
+    public function sendOTP($phone,$address){
         return $this->returnData('otp','111111',200);
     }
     public function updateIsVerified(Request $request){

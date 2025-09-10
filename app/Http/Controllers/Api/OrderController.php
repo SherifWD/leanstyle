@@ -15,8 +15,8 @@ class OrderController extends Controller
     private function meCustomer(Request $request): Customer
     {
         return Customer::firstOrCreate(
-            ['email' => $request->user('api')->email, 'phone' => $request->user('api')->phone],
-            ['name'  => $request->user('api')->name]
+            ['phone' => $request->user('customer')->phone],
+            ['name'  => $request->user('customer')->name]
         );
     }
 

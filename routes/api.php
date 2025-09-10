@@ -49,7 +49,7 @@ Route::middleware('auth:api,customer')->group(function () {
     // Addresses
     Route::get('addresses',            [AddressController::class, 'index']);
     Route::post('addresses',           [AddressController::class, 'store']);
-    Route::get('send-otp',           [AddressController::class, 'sendOTP']);
+    Route::get('send-otp/{phone}/{address}',           [AddressController::class, 'sendOTP']);
     Route::post('update-verified',           [AddressController::class, 'updateIsVerified']);
     Route::put('addresses/{address}',  [AddressController::class, 'update']);
     Route::delete('addresses/{address}',[AddressController::class, 'destroy']);
