@@ -4,16 +4,20 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\SupportTicket;
+use App\Traits\backendTraits;
+use App\Traits\HelpersTrait;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
 class SupportController extends Controller
 {
+    use HelpersTrait;
+    use backendTraits;
     public function store(Request $request)
     {
         $data = $request->validate([
-            'subject'     => ['required','string','max:190'],
-            'message'     => ['required','string'],
+            'subject'     => ['nullable','string','max:190'],
+            'message'     => ['nullable','string'],
             'attachments' => ['nullable','array'],
             'attachments.*' => ['file','max:5120'], // 5MB per file
             'name'  => ['nullable','string','max:190'],
@@ -34,7 +38,7 @@ class SupportController extends Controller
             'name'        => $data['name'] ?? ($request->user('api')->name ?? $request->user('customer')->name ?? null),
             'phone'       => $data['phone'] ?? ($request->user('api')->phone ?? $request->user('customer')->phone ?? null),
             'email'       => $data['email'] ?? ($request->user('api')->email ?? $request->user('customer')->email ?? null),
-            'subject'     => $data['subject'],
+            'subject'     => $data['subject'] ?? NULL,
             'message'     => $data['message'],
             'attachments' => $paths ?: null,
         ]);
