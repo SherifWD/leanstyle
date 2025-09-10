@@ -218,30 +218,30 @@ private function defaultVerifiedAddress(\App\Models\Customer $customer)
     // POST /api/cart/checkout
     public function checkout(Request $request)
 {
-    // FIX: use the customer guard (cart belongs to customers)
+    // Use the customer guard (cart belongs to customers)
     $customer = $request->user('customer');
     $cart = $this->myCart($request)->load('items');
-    
+
     abort_if($cart->items->isEmpty(), 422, 'Cart is empty');
+
+    // Default payment method to COD if not set
     if (empty($cart->payment_method)) {
-    $cart->payment_method = 'cod';
-    $cart->save();
-}
+        $cart->payment_method = 'cod';
+        $cart->save();
+    }
 
-
-    // Resolve address: selected → validated OR default verified
-    $addr = null;
-
-    if ($cart->customer_address_id) {
+    // Resolve address: selected (customer_address_id or legacy address_id) → validated OR default verified
+    $selectedAddressId = $cart->customer_address_id ?: $cart->address_id;
+    if ($selectedAddressId) {
         $addr = \App\Models\CustomerAddress::where('customer_id', $customer->id)
-            ->where('id', $cart->customer_address_id)
+            ->where('id', $selectedAddressId)
             ->first();
         abort_if(!$addr, 422, 'Selected address not found.');
         abort_if(!$addr->is_verified, 422, 'Selected address is not verified.');
     } else {
         $addr = $this->defaultVerifiedAddress($customer);
         abort_if(!$addr, 422, 'No default verified address found. Please verify or select an address.');
-        // Persist the choice on cart for transparency (optional)
+        // Persist back on cart (prefer the new column if you use it)
         $cart->customer_address_id = $addr->id;
         $cart->save();
     }
@@ -249,22 +249,22 @@ private function defaultVerifiedAddress(\App\Models\Customer $customer)
     $result = DB::transaction(function () use ($cart, $customer, $addr) {
         // Create order
         $order = new Order();
-        $order->store_id             = $cart->items->first()->product->store_id ?? $cart->store_id;
-        $order->customer_id          = $customer->id;
-        $order->address_id  = $addr->id;              // <-- keep the FK
-        $order->status               = 'pending';
-        $order->order_code           = strtoupper(Str::random(10));
-        $order->subtotal             = $cart->subtotal;
-        $order->discount_total       = $cart->discount_total;
-        $order->tax_total            = $cart->tax_total;
-        $order->delivery_fee         = $cart->delivery_fee;
-        $order->grand_total          = $cart->grand_total;
-        $order->payment_method       = $cart->payment_method;
-        // denormalized shipping snapshot
-        $order->ship_address         = $addr->address_line;
-        $order->ship_lat             = $addr->lat;
-        $order->ship_lng             = $addr->lng;
-        $order->notes                = $cart->notes;
+        $order->store_id    = $cart->items->first()->product->store_id ?? $cart->store_id;
+        $order->customer_id = $customer->id;
+        $order->address_id  = $addr->id; // FK to the address used
+        $order->status      = 'pending';
+        $order->order_code  = strtoupper(Str::random(10));
+        $order->subtotal    = $cart->subtotal;
+        $order->discount_total = $cart->discount_total;
+        $order->tax_total      = $cart->tax_total;
+        $order->delivery_fee   = $cart->delivery_fee;
+        $order->grand_total    = $cart->grand_total;
+        $order->payment_method = $cart->payment_method;
+        // snapshot of shipping fields
+        $order->ship_address = $addr->address_line;
+        $order->ship_lat     = $addr->lat;
+        $order->ship_lng     = $addr->lng;
+        $order->notes        = $cart->notes;
         $order->save();
 
         // Items + stock decrement
@@ -283,39 +283,47 @@ private function defaultVerifiedAddress(\App\Models\Customer $customer)
                 }
             }
 
-            $unit = $ci->unit_price;
-if ($unit <= 0) {
-    $product = Product::find($ci->product_id);
-    $variant = $ci->product_variant_id ? ProductVariant::find($ci->product_variant_id) : null;
-    $unit = collect([
-        $variant?->discounted_price,
-        $variant?->discount_price,
-        $variant?->price,
-        $product?->discounted_price,
-        $product?->discount_price,
-        $product?->price,
-    ])->first(fn($v) => $v !== null) ?? 0.0;
-}
+            // Self-heal unit price if it's missing/zero
+            $unit = (float) $ci->unit_price;
+            if ($unit <= 0) {
+                $unit = (float) (collect([
+                    $variant?->discounted_price,
+                    $variant?->discount_price,
+                    $variant?->price,
+                    $product?->discounted_price,
+                    $product?->discount_price,
+                    $product?->price,
+                ])->first(fn($v) => $v !== null) ?? 0.0);
+            }
 
-OrderItem::create([
-    'order_id'           => $order->id,
-    'product_id'         => $ci->product_id,
-    'product_variant_id' => $ci->product_variant_id,
-    'name'               => $ci->name,
-    'options'            => $ci->options, // model cast handles JSON
-    'qty'                => $ci->qty,
-    'unit_price'         => $unit,
-    'discount'           => $ci->discount,
-    'line_total'         => max(0, ($unit - (float)$ci->discount) * $ci->qty),
-]);
+            // Ensure options are JSON-encoded to avoid "Array to string conversion"
+            $opts = $ci->options;
+            if (is_array($opts)) {
+                $opts = json_encode($opts, JSON_UNESCAPED_UNICODE);
+            }
 
+            $discount  = (float) $ci->discount;
+            $qty       = (int) $ci->qty;
+            $lineTotal = max(0, round(($unit - $discount) * $qty, 2));
+
+            OrderItem::create([
+                'order_id'           => $order->id,
+                'product_id'         => $ci->product_id,
+                'product_variant_id' => $ci->product_variant_id,
+                'name'               => $ci->name,
+                'options'            => $opts,          // safe for TEXT/JSON columns
+                'qty'                => $qty,
+                'unit_price'         => $unit,
+                'discount'           => $discount,
+                'line_total'         => $lineTotal,
+            ]);
         }
 
         // Status history (changed_by = customer)
         $order->statusHistories()->create([
             'from_status' => null,
             'to_status'   => 'pending',
-            'changed_by'  => $customer->id,    // if this field is reserved for admins, set to null or add a "changed_by_type"
+            'changed_by'  => $customer->id,
             'reason'      => 'Order placed via app',
         ]);
 
@@ -332,52 +340,4 @@ OrderItem::create([
     return $this->returnData('order', $result, 'Order placed');
 }
 
-    /** ---------- helpers ---------- */
-
-    private function recalculate(Cart $cart): void
-    {
-        $subtotal = (float) $cart->items->sum('line_total');
-        $discount = 0.0; // apply coupons here if integrated
-        $taxRate  = (float) (\App\Models\Setting::firstWhere('key','tax_rate')->value ?? 0);
-        $delivery = (float) (\App\Models\Setting::firstWhere('key','default_delivery_fee')->value ?? 0);
-
-        $tax   = round(($subtotal - $discount) * ($taxRate / 100), 2);
-        $grand = max(0, $subtotal - $discount + $tax + $delivery);
-
-        $cart->update([
-            'subtotal'       => $subtotal,
-            'discount_total' => $discount,
-            'tax_total'      => $tax,
-            'delivery_fee'   => $delivery,
-            'grand_total'    => $grand,
-        ]);
-        $cart->load('items');
-    }
-
-    private function payload(Cart $cart)
-    {
-        return [
-            'id'    => $cart->id,
-            'items' => $cart->items->map(fn($i) => [
-                'id'                 => $i->id,
-                'product_id'         => $i->product_id,
-                'product_variant_id' => $i->product_variant_id,
-                'name'               => $i->name,
-                'options'            => $i->options,
-                'qty'                => (int)$i->qty,
-                'unit_price'         => (float)$i->unit_price,
-                'discount'           => (float)$i->discount,
-                'line_total'         => (float)$i->line_total,
-            ]),
-            'totals' => [
-                'subtotal'        => (float)$cart->subtotal,
-                'discount_total'  => (float)$cart->discount_total,
-                'tax_total'       => (float)$cart->tax_total,
-                'delivery_fee'    => (float)$cart->delivery_fee,
-                'grand_total'     => (float)$cart->grand_total,
-            ],
-            'selected_address_id' => $cart->address_id,
-            'payment_method'      => $cart->payment_method,
-        ];
-    }
 }
