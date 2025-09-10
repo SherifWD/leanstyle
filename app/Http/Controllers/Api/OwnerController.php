@@ -350,7 +350,7 @@ private function uniqueSlug(string $base): string
     if($data['images']){
         foreach($data['images'] as $image){
             $p_image = new ProductImage();
-            $imagePath = $request->file('image')->store('products');
+            $imagePath = $image->store('products');
             $p_image->product_id = $p->id;
             $p_image->path = $imagePath;
         }
