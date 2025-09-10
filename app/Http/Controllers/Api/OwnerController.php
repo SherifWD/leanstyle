@@ -273,7 +273,7 @@ private function uniqueSlug(string $base): string
         'stock'           => ['nullable','integer','min:0'],
         'type'            => ['nullable','string','max:50'], // mens|women|child etc
         'is_active'       => ['boolean'],
-
+        'images' => ['array','file'],
         // NEW: base product weight (grams or your unit)
         'weight'          => ['nullable','numeric','min:0'],
 
@@ -346,14 +346,14 @@ private function uniqueSlug(string $base): string
             ]);
         }
     }
-    // if($data['images']){
-    //     foreach($data['images'] as $image){
-    //         $p_image = new ProductImage();
-    //         $imagePath = $request->file('image')->store('images');
-    //         $p_image->product_id = $p->id;
-    //         $p_image->path = $imagePath;
-    //     }
-    // }
+    if($data['images']){
+        foreach($data['images'] as $image){
+            $p_image = new ProductImage();
+            $imagePath = $request->file('image')->store('products');
+            $p_image->product_id = $p->id;
+            $p_image->path = $imagePath;
+        }
+    }
     return $this->returnData('product', [
         'id'              => $p->id,
         'name'            => $p->name,
