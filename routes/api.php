@@ -26,9 +26,7 @@ Route::post('auth/forgot/verify',  [AuthController::class,'forgotVerify']);
 Route::post('auth/forgot/reset',   [AuthController::class,'forgotReset']);
 
 });
-Route::middleware(['auth:api,customer'])->group(function () {
-    Route::post('support/tickets', [SupportController::class,'store']);
-});
+
 // Public
 Route::get('home', [\App\Http\Controllers\Api\HomeController::class, 'index']);
 Route::get('products', [\App\Http\Controllers\Api\HomeController::class, 'products']);
@@ -46,7 +44,8 @@ Route::get('search',         [SearchController::class, 'search']);
 // Auth block already added earlier…
 
 // Authenticated user flow
-Route::middleware('auth:api')->group(function () {
+
+Route::middleware('auth:api,customer')->group(function () {
     // Addresses
     Route::get('addresses',            [AddressController::class, 'index']);
     Route::post('addresses',           [AddressController::class, 'store']);
@@ -64,6 +63,7 @@ Route::middleware('auth:api')->group(function () {
     Route::post('cart/select-address',     [CartController::class, 'selectAddress']);
     Route::post('cart/select-payment',     [CartController::class, 'selectPayment']);
     Route::post('cart/checkout',           [CartController::class, 'checkout']); // convert to order
+    Route::post('support/tickets', [SupportController::class,'store']);
 
     // Orders
     Route::get('orders',          [OrderController::class, 'index']);
