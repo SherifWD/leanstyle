@@ -367,6 +367,7 @@ private function uniqueSlug(string $base): string
         'type'            => $p->type,
         'weight'          => $p->weight ? (float)$p->weight : null,
         'is_active'       => (bool)$p->is_active,
+        'images'        => $p->images,
         'variants'        => collect($createdVariants)->map(function ($v) {
             return [
                 'id'             => $v->id,
