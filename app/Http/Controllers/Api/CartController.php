@@ -17,7 +17,7 @@ class CartController extends Controller
     private function myCart(Request $request): Cart
     {
         $cart = Cart::firstOrCreate([
-            'user_id' => $request->user('api')->id,
+            'user_id' => $request->user('customer')->id,
             'status'  => 'active',
         ]);
         $cart->load('items');
@@ -156,16 +156,32 @@ class CartController extends Controller
 
     // POST /api/cart/select-address {address_id}
     public function selectAddress(Request $request)
-    {
-        $data = $request->validate(['address_id' => ['required','exists:customer_addresses,id']]);
+{
+    $customer = $request->user('customer');
 
-        $cart = $this->myCart($request);
-        $cart->customer_address_id = $data['address_id'];
-        $cart->save();
+    $data = $request->validate([
+        'address_id' => ['required','integer'],
+    ]);
 
-        return $this->returnData('cart', $this->payload($cart), 'Address selected');
-    }
+    $addr = \App\Models\CustomerAddress::where('customer_id', $customer->id)
+        ->where('id', $data['address_id'])
+        ->firstOrFail();
 
+    abort_if(!$addr->is_verified, 422, 'Address must be verified before use.');
+
+    $cart = $this->myCart($request);
+    $cart->address_id = $addr->id;
+    $cart->save();
+
+    return $this->returnData('cart', $this->payload($cart), 'Address selected');
+}
+private function defaultVerifiedAddress(\App\Models\Customer $customer)
+{
+    return $customer->addresses()
+        ->where('is_default', true)
+        ->where('is_verified', true)
+        ->first();
+}
     // POST /api/cart/select-payment {payment_method: cod|card}
     public function selectPayment(Request $request)
     {
@@ -180,87 +196,101 @@ class CartController extends Controller
 
     // POST /api/cart/checkout
     public function checkout(Request $request)
-    {
-        $user = $request->user('api');
-        $cart = $this->myCart($request)->load('items');
+{
+    // FIX: use the customer guard (cart belongs to customers)
+    $customer = $request->user('customer');
+    $cart = $this->myCart($request)->load('items');
 
-        abort_if($cart->items->isEmpty(), 422, 'Cart is empty');
-        abort_if(!$cart->customer_address_id, 422, 'Select delivery address');
-        abort_if(!$cart->payment_method, 422, 'Select payment method');
+    abort_if($cart->items->isEmpty(), 422, 'Cart is empty');
+    abort_if(!$cart->payment_method, 422, 'Select payment method');
 
-        $customer = \App\Models\Customer::firstOrCreate(
-            ['phone' => $user->phone, 'email' => $user->email],
-            ['name'  => $user->name]
-        );
-        $addr = \App\Models\CustomerAddress::find($cart->customer_address_id);
+    // Resolve address: selected → validated OR default verified
+    $addr = null;
 
-        $result = DB::transaction(function () use ($cart, $customer, $addr, $user) {
-            // Create order
-            $order = new Order();
-            $order->store_id       = $cart->items->first()->product->store_id ?? $cart->store_id;
-            $order->customer_id    = $customer->id;
-            $order->status         = 'pending';
-            $order->order_code     = strtoupper(Str::random(10));
-            $order->subtotal       = $cart->subtotal;
-            $order->discount_total = $cart->discount_total;
-            $order->tax_total      = $cart->tax_total;
-            $order->delivery_fee   = $cart->delivery_fee;
-            $order->grand_total    = $cart->grand_total;
-            $order->payment_method = $cart->payment_method;
-            $order->ship_address   = $addr->address_line;
-            $order->ship_lat       = $addr->lat;
-            $order->ship_lng       = $addr->lng;
-            $order->notes          = $cart->notes;
-            $order->save();
+    if ($cart->address_id) {
+        $addr = \App\Models\CustomerAddress::where('customer_id', $customer->id)
+            ->where('id', $cart->address_id)
+            ->first();
+        abort_if(!$addr, 422, 'Selected address not found.');
+        abort_if(!$addr->is_verified, 422, 'Selected address is not verified.');
+    } else {
+        $addr = $this->defaultVerifiedAddress($customer);
+        abort_if(!$addr, 422, 'No default verified address found. Please verify or select an address.');
+        // Persist the choice on cart for transparency (optional)
+        $cart->address_id = $addr->id;
+        $cart->save();
+    }
 
-            // Items + stock decrement
-            foreach ($cart->items as $ci) {
-                $product = Product::lockForUpdate()->find($ci->product_id);
-                $variant = $ci->product_variant_id ? ProductVariant::lockForUpdate()->find($ci->product_variant_id) : null;
+    $result = DB::transaction(function () use ($cart, $customer, $addr) {
+        // Create order
+        $order = new Order();
+        $order->store_id             = $cart->items->first()->product->store_id ?? $cart->store_id;
+        $order->customer_id          = $customer->id;
+        $order->address_id  = $addr->id;              // <-- keep the FK
+        $order->status               = 'pending';
+        $order->order_code           = strtoupper(Str::random(10));
+        $order->subtotal             = $cart->subtotal;
+        $order->discount_total       = $cart->discount_total;
+        $order->tax_total            = $cart->tax_total;
+        $order->delivery_fee         = $cart->delivery_fee;
+        $order->grand_total          = $cart->grand_total;
+        $order->payment_method       = $cart->payment_method;
+        // denormalized shipping snapshot
+        $order->ship_address         = $addr->address_line;
+        $order->ship_lat             = $addr->lat;
+        $order->ship_lng             = $addr->lng;
+        $order->notes                = $cart->notes;
+        $order->save();
 
-                if ($variant) {
-                    if ($variant->stock < $ci->qty) abort(422, 'Insufficient stock');
-                    $variant->decrement('stock', $ci->qty);
-                } else {
-                    if ($product->variants()->exists() === false) {
-                        if ($product->stock < $ci->qty) abort(422, 'Insufficient stock');
-                        $product->decrement('stock', $ci->qty);
-                    }
+        // Items + stock decrement
+        foreach ($cart->items as $ci) {
+            $product = Product::lockForUpdate()->find($ci->product_id);
+            $variant = $ci->product_variant_id ? ProductVariant::lockForUpdate()->find($ci->product_variant_id) : null;
+
+            if ($variant) {
+                abort_if($variant->stock < $ci->qty, 422, 'Insufficient stock');
+                $variant->decrement('stock', $ci->qty);
+            } else {
+                // If product has NO variants, decrement product stock
+                if ($product && !$product->variants()->exists()) {
+                    abort_if($product->stock < $ci->qty, 422, 'Insufficient stock');
+                    $product->decrement('stock', $ci->qty);
                 }
-
-                OrderItem::create([
-                    'order_id'           => $order->id,
-                    'product_id'         => $ci->product_id,
-                    'product_variant_id' => $ci->product_variant_id,
-                    'name'               => $ci->name,
-                    'options'            => $ci->options,
-                    'qty'                => $ci->qty,
-                    'unit_price'         => $ci->unit_price,
-                    'discount'           => $ci->discount,
-                    'line_total'         => $ci->line_total,
-                ]);
             }
 
-            // Status history
-            $order->statusHistories()->create([
-                'from_status' => null,
-                'to_status'   => 'pending',
-                'changed_by'  => $user->id,
-                'reason'      => 'Order placed via app',
+            OrderItem::create([
+                'order_id'           => $order->id,
+                'product_id'         => $ci->product_id,
+                'product_variant_id' => $ci->product_variant_id,
+                'name'               => $ci->name,
+                'options'            => $ci->options,
+                'qty'                => $ci->qty,
+                'unit_price'         => $ci->unit_price,
+                'discount'           => $ci->discount,
+                'line_total'         => $ci->line_total,
             ]);
+        }
 
-            // Close cart
-            $cart->update(['status' => 'converted']);
+        // Status history (changed_by = customer)
+        $order->statusHistories()->create([
+            'from_status' => null,
+            'to_status'   => 'pending',
+            'changed_by'  => $customer->id,    // if this field is reserved for admins, set to null or add a "changed_by_type"
+            'reason'      => 'Order placed via app',
+        ]);
 
-            return [
-                'order_id'    => $order->id,
-                'order_code'  => $order->order_code,
-                'grand_total' => (float)$order->grand_total,
-            ];
-        });
+        // Close cart
+        $cart->update(['status' => 'converted']);
 
-        return $this->returnData('order', $result, 'Order placed');
-    }
+        return [
+            'order_id'    => $order->id,
+            'order_code'  => $order->order_code,
+            'grand_total' => (float) $order->grand_total,
+        ];
+    });
+
+    return $this->returnData('order', $result, 'Order placed');
+}
 
     /** ---------- helpers ---------- */
 
@@ -306,7 +336,7 @@ class CartController extends Controller
                 'delivery_fee'    => (float)$cart->delivery_fee,
                 'grand_total'     => (float)$cart->grand_total,
             ],
-            'selected_address_id' => $cart->customer_address_id,
+            'selected_address_id' => $cart->address_id,
             'payment_method'      => $cart->payment_method,
         ];
     }
