@@ -15,7 +15,7 @@ class AddressController extends Controller
     /** Map the authenticated user to a Customer row (create if missing). */
     private function meCustomer(Request $request): Customer
     {
-        $u = $request->user('api');
+        $u = $request->user('customer');
 
         // Prefer phone as a stable key; fall back to email, then name.
         $query = [];
