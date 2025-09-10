@@ -384,9 +384,10 @@ private function uniqueSlug(string $base): string
 }
 
 
+
 public function updateProduct(\App\Models\Product $product, Request $request)
 {
-    // --- Auth (same pattern you used elsewhere) ---
+    // --- Auth ---
     $user = $request->user()
         ?? Auth::guard('api')->user()
         ?? (JWTAuth::check() ? JWTAuth::user() : null);
@@ -395,15 +396,28 @@ public function updateProduct(\App\Models\Product $product, Request $request)
         return $this->returnError(401, 'Unauthenticated. Provide a valid Bearer token.');
     }
 
-    // --- Ownership (product → store → owner) ---
+    // --- Ownership ---
     $store = \App\Models\Store::find($product->store_id);
-    if (!$store || (int) $store->owner_id !== (int) $user->id) {
+    if (!$store || (int)$store->owner_id !== (int)$user->id) {
         return $this->returnError(403, 'You do not own this product/store');
     }
 
-    // --- Validate partial update (use "sometimes") ---
+    // Normalize images: allow single file as "images"
+    if ($request->hasFile('images') && !is_array($request->file('images'))) {
+        $request->files->set('images', [$request->file('images')]);
+    }
+
+    // Optional: decode variants if sent as JSON string
+    if ($request->filled('variants') && is_string($request->variants)) {
+        $decoded = json_decode($request->variants, true);
+        if (json_last_error() === JSON_ERROR_NONE) {
+            $request->merge(['variants' => $decoded]);
+        }
+    }
+
+    // --- Validate ---
     $data = $request->validate([
-        'store_id'        => ['sometimes','required','exists:stores,id'], // allow moving across owned stores
+        'store_id'        => ['sometimes','required','exists:stores,id'],
         'name'            => ['sometimes','required','string','max:190'],
         'description'     => ['sometimes','nullable','string'],
         'category_id'     => ['sometimes','nullable','exists:categories,id'],
@@ -415,11 +429,15 @@ public function updateProduct(\App\Models\Product $product, Request $request)
         'is_active'       => ['sometimes','boolean'],
         'weight'          => ['sometimes','nullable','numeric','min:0'],
 
-        // quick single-variant fields (used only if "variants" not sent)
+        // images replacement (if provided)
+        'images'          => ['sometimes','array'],
+        'images.*'        => ['file','image','mimes:jpg,jpeg,png,webp,avif','max:5120'],
+
+        // quick single-variant fields
         'size_id'         => ['sometimes','nullable','exists:sizes,id'],
         'color_id'        => ['sometimes','nullable','exists:colors,id'],
 
-        // full variants array (upsert/delete)
+        // full variants upsert
         'variants'                         => ['sometimes','array'],
         'variants.*.id'                    => ['sometimes','integer','exists:product_variants,id'],
         'variants.*._delete'               => ['sometimes','boolean'],
@@ -427,41 +445,35 @@ public function updateProduct(\App\Models\Product $product, Request $request)
         'variants.*.size_id'               => ['sometimes','nullable','exists:sizes,id'],
         'variants.*.sku'                   => ['sometimes','nullable','string','max:255'],
         'variants.*.price'                 => ['sometimes','nullable','numeric','min:0'],
-        'variants.*.discount_price'        => ['sometimes','nullable','numeric','min:0'],
+        'variants.*.discount_price'        => ['sometimes','nullable','numeric','min:0','lte:variants.*.price'],
         'variants.*.stock'                 => ['sometimes','nullable','integer','min:0'],
         'variants.*.is_active'             => ['sometimes','boolean'],
     ]);
 
-    // if moving product to another store, verify target is owned by user
+    // If moving product, ensure target store belongs to user
     if (array_key_exists('store_id', $data)) {
         $target = \App\Models\Store::where('id', $data['store_id'])
-            ->where('owner_id', $user->id)
-            ->first();
-        if (!$target) {
-            return $this->returnError(403, 'You do not own the target store');
-        }
+            ->where('owner_id', $user->id)->first();
+        if (!$target) return $this->returnError(403, 'You do not own the target store');
     }
 
-    // ensure provided variant IDs (if any) belong to this product
+    // Ensure provided variant ids (if any) belong to this product
     if (!empty($data['variants'])) {
         $ids = collect($data['variants'])->pluck('id')->filter()->values();
         if ($ids->isNotEmpty()) {
-            $count = \App\Models\ProductVariant::where('product_id', $product->id)
-                ->whereIn('id', $ids)
-                ->count();
+            $count = \App\Models\ProductVariant::where('product_id',$product->id)->whereIn('id',$ids)->count();
             if ($count !== $ids->count()) {
                 return $this->returnError(422, 'One or more variants do not belong to this product');
             }
         }
     }
 
-    // Transaction: update product + variants atomically
-    DB::transaction(function () use ($product, $data) {
-        // --- Update product fields ---
+    DB::transaction(function () use ($product, $data, $request) {
+        // Update product fields
         $product->fill([
             'store_id'       => $data['store_id']        ?? $product->store_id,
             'name'           => array_key_exists('name', $data) ? $data['name'] : $product->name,
-            'description'    => $data['description']     ?? $product->description,
+            'description'    => array_key_exists('description', $data) ? $data['description'] : $product->description,
             'category_id'    => array_key_exists('category_id', $data) ? $data['category_id'] : $product->category_id,
             'brand_id'       => array_key_exists('brand_id', $data) ? $data['brand_id'] : $product->brand_id,
             'price'          => array_key_exists('price', $data) ? $data['price'] : $product->price,
@@ -470,66 +482,73 @@ public function updateProduct(\App\Models\Product $product, Request $request)
             'type'           => array_key_exists('type', $data) ? $data['type'] : $product->type,
             'is_active'      => array_key_exists('is_active', $data) ? (bool)$data['is_active'] : $product->is_active,
             'weight'         => array_key_exists('weight', $data) ? $data['weight'] : $product->weight,
-        ]);
-        $product->save();
+        ])->save();
 
-        // --- Variants sync logic ---
+        // Variants sync (no blanket delete; respect _delete flags)
         if (array_key_exists('variants', $data)) {
-            \App\Models\ProductVariant::where('product_id',$product->id)->delete();
             foreach ($data['variants'] as $v) {
-                // delete
+                // delete existing
                 if (!empty($v['_delete']) && !empty($v['id'])) {
-                    \App\Models\ProductVariant::where('product_id', $product->id)
-                        ->where('id', $v['id'])
-                        ->delete();
+                    \App\Models\ProductVariant::where('product_id',$product->id)->where('id',$v['id'])->delete();
                     continue;
                 }
-
                 // update existing
                 if (!empty($v['id'])) {
-                    $pv = \App\Models\ProductVariant::where('product_id', $product->id)
-                        ->where('id', $v['id'])
-                        ->first();
-
+                    $pv = \App\Models\ProductVariant::where('product_id',$product->id)->where('id',$v['id'])->first();
                     if ($pv) {
-                        
-
                         $pv->fill([
-                            'color_id'       => array_key_exists('color_id', $v) ? $v['color_id'] : $pv->color_id,
-                            'size_id'        => array_key_exists('size_id', $v) ? $v['size_id'] : $pv->size_id,
-                            'price'          => array_key_exists('price', $v) ? $v['price'] : $pv->price,
-                            'discount_price' => array_key_exists('discount_price', $v) ? $v['discount_price'] : $pv->discount_price,
-                            'stock'          => array_key_exists('stock', $v) ? (int)$v['stock'] : $pv->stock,
-                            'is_active'      => array_key_exists('is_active', $v) ? (bool)$v['is_active'] : $pv->is_active,
-                        ]);
-                        $pv->save();
+                            'color_id'       => array_key_exists('color_id',$v) ? $v['color_id'] : $pv->color_id,
+                            'size_id'        => array_key_exists('size_id',$v) ? $v['size_id'] : $pv->size_id,
+                            'price'          => array_key_exists('price',$v) ? $v['price'] : $pv->price,
+                            'discount_price' => array_key_exists('discount_price',$v) ? $v['discount_price'] : $pv->discount_price,
+                            'stock'          => array_key_exists('stock',$v) ? (int)$v['stock'] : $pv->stock,
+                            'is_active'      => array_key_exists('is_active',$v) ? (bool)$v['is_active'] : $pv->is_active,
+                            'sku'            => array_key_exists('sku',$v) ? $v['sku'] : $pv->sku,
+                        ])->save();
                     }
                 } else {
                     // create new
-                    $vPrice = Arr::get($v, 'price', $product->price);
-                    
-
-                    
-
                     \App\Models\ProductVariant::create([
                         'product_id'      => $product->id,
-                        'color_id'        => Arr::get($v, 'color_id'),
-                        'size_id'         => Arr::get($v, 'size_id'),
-                        'price'           => $vPrice,
-                        'discount_price'  => Arr::get($v, 'discount_price'),
-                        'stock'           => (int) Arr::get($v, 'stock', 0),
-                        'is_active'       => (bool) Arr::get($v, 'is_active', true),
+                        'color_id'        => Arr::get($v,'color_id'),
+                        'size_id'         => Arr::get($v,'size_id'),
+                        'sku'             => Arr::get($v,'sku', \Illuminate\Support\Str::slug($product->name).'-'.\Illuminate\Support\Str::random(6)),
+                        'price'           => Arr::get($v,'price', $product->price),
+                        'discount_price'  => Arr::get($v,'discount_price'),
+                        'stock'           => (int) Arr::get($v,'stock', 0),
+                        'is_active'       => (bool) Arr::get($v,'is_active', true),
                     ]);
                 }
             }
         }
-        
+
+        // Replace images if new files are uploaded
+        if ($request->hasFile('images')) {
+            // delete old files + rows
+            $old = $product->images()->get();
+            foreach ($old as $img) {
+                if ($img->path) Storage::disk('local')->delete($img->path); // local disk => public/
+            }
+            $product->images()->delete();
+
+            // save new
+            Storage::disk('local')->makeDirectory('products');
+            foreach ($request->file('images') as $file) {
+                if (!$file->isValid()) continue;
+                $ext  = strtolower($file->getClientOriginalExtension() ?: $file->extension());
+                $name = \Illuminate\Support\Str::slug($product->name) . '-' . \Illuminate\Support\Str::random(8) . '.' . $ext;
+                $path = Storage::disk('local')->putFileAs('products', $file, $name); // "products/xxx.jpg"
+
+                \App\Models\ProductImage::create([
+                    'product_id' => $product->id,
+                    'path'       => $path,
+                ]);
+            }
+        }
     });
 
     // Reload for response
-    $variants = \App\Models\ProductVariant::where('product_id', $product->id)
-        ->orderBy('id')
-        ->get();
+    $product->load('images','variants');
 
     return $this->returnData('product', [
         'id'              => $product->id,
@@ -538,63 +557,68 @@ public function updateProduct(\App\Models\Product $product, Request $request)
         'description'     => $product->description,
         'category_id'     => $product->category_id,
         'brand_id'        => $product->brand_id,
-        'price'           => (float) $product->price,
-        'discount_price'  => $product->discount_price !== null ? (float) $product->discount_price : null,
-        'stock'           => (int) $product->stock,
+        'price'           => (float)$product->price,
+        'discount_price'  => $product->discount_price !== null ? (float)$product->discount_price : null,
+        'stock'           => (int)$product->stock,
         'type'            => $product->type,
-        'weight'          => $product->weight !== null ? (float) $product->weight : null,
-        'is_active'       => (bool) $product->is_active,
-        'variants'        => $variants->map(fn ($v) => [
-            'id'             => $v->id,
-            'price'          => $v->price !== null ? (float) $v->price : null,
-            'discount_price' => $v->discount_price !== null ? (float) $v->discount_price : null,
-            'stock'          => (int) $v->stock,
-            'is_active'      => (bool) $v->is_active,
-            'color_id'       => $v->color_id,
-            'size_id'        => $v->size_id,
+        'weight'          => $product->weight !== null ? (float)$product->weight : null,
+        'is_active'       => (bool)$product->is_active,
+        'images'          => $product->images->map(fn($img)=>[
+            'id'=>$img->id,'path'=>$img->path,'url'=>asset($img->path)
+        ]),
+        'variants'        => $product->variants->map(fn($v)=>[
+            'id'=>$v->id,
+            'price'=> $v->price !== null ? (float)$v->price : null,
+            'discount_price'=> $v->discount_price !== null ? (float)$v->discount_price : null,
+            'stock'=> (int)$v->stock,
+            'is_active'=> (bool)$v->is_active,
+            'color_id'=> $v->color_id,
+            'size_id'=> $v->size_id,
+            'sku'=> $v->sku,
         ])->values(),
     ], 'Product updated');
 }
 
 
-
 public function updateShop(Store $store, Request $request)
 {
-    // --- Auth (same approach as createShop) ---
-    $user = $request->user()
-        ?? Auth::guard('api')->user();
+    // Auth
+    $user = $request->user() ?? Auth::guard('api')->user() ?? (JWTAuth::check() ? JWTAuth::user() : null);
+    if (!$user) return $this->returnError(401, 'Unauthenticated. Provide a valid Bearer token.');
 
-    if (!$user && ($raw = $request->bearerToken())) {
-        try { $user = JWTAuth::setToken($raw)->authenticate(); } catch (\Throwable $e) { /* ignore */ }
-    }
-    if (!$user) {
-        return $this->returnError(401, 'Unauthenticated. Provide a valid Bearer token.');
-    }
-
-    // --- Ownership check (don’t 404) ---
-    if (!$store || $store->owner_id !== $user->id) {
+    // Ownership
+    if (!$store || (int)$store->owner_id !== (int)$user->id) {
         return $this->returnError(403, 'You do not own this store');
     }
 
-    // --- Validation (includes all fields from createShop) ---
+    // If business_hours is sent as JSON string, decode
+    if ($request->filled('business_hours') && is_string($request->business_hours)) {
+        $decoded = json_decode($request->business_hours, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            return $this->returnError(422, 'business_hours must be valid JSON');
+        }
+        $request->merge(['business_hours' => $decoded]);
+    }
+
+    // Validate
     $data = $request->validate([
         'name'              => ['sometimes','required','string','max:255'],
         'slug'              => [
             'sometimes','nullable','string','max:255','regex:/^[a-z0-9-]+$/',
             Rule::unique('stores','slug')->ignore($store->id)->whereNull('deleted_at'),
         ],
-        'logo_path'         => ['sometimes','nullable','string','max:255'],
+        // allow file upload like createShop
+        'logo_path'         => ['sometimes','nullable','image','mimes:jpg,jpeg,png,webp,avif','max:5120'],
         'brand_color'       => ['sometimes','nullable','string','max:255'],
         'description'       => ['sometimes','nullable','string'],
         'address'           => ['sometimes','nullable','string','max:255'],
         'lat'               => ['sometimes','nullable','numeric','between:-90,90'],
         'lng'               => ['sometimes','nullable','numeric','between:-180,180'],
         'is_active'         => ['sometimes','boolean'],
-        'delivery_settings' => ['sometimes','nullable'], // JSON string or array
+        'delivery_settings' => ['sometimes','nullable'], // JSON/array
         'country'           => ['sometimes','nullable','string','max:255'],
         'city'              => ['sometimes','nullable','string','max:255'],
 
-        // business hours optional on update; when present we REPLACE them
         'business_hours'                 => ['sometimes','array','min:1'],
         'business_hours.*.weekday'       => ['required_with:business_hours','integer','between:0,6'],
         'business_hours.*.open_at'       => ['nullable','date_format:H:i'],
@@ -602,21 +626,7 @@ public function updateShop(Store $store, Request $request)
         'business_hours.*.is_closed'     => ['boolean'],
     ]);
 
-    // --- Normalize delivery_settings to array if provided ---
-    if (array_key_exists('delivery_settings', $data)) {
-        $value = $data['delivery_settings'];
-        if (is_string($value) && $value !== '') {
-            $decoded = json_decode($value, true);
-            if (json_last_error() !== JSON_ERROR_NONE) {
-                return $this->returnError(422, 'delivery_settings must be valid JSON');
-            }
-            $data['delivery_settings'] = $decoded;
-        } elseif (!is_array($value) && !is_null($value)) {
-            return $this->returnError(422, 'delivery_settings must be an object/array or JSON string');
-        }
-    }
-
-    // --- Per-row time validation if hours were sent ---
+    // Hours sanity check
     if (array_key_exists('business_hours', $data)) {
         foreach ($data['business_hours'] as $i => $bh) {
             $closed = (bool)($bh['is_closed'] ?? false);
@@ -628,54 +638,67 @@ public function updateShop(Store $store, Request $request)
         }
     }
 
-    // --- Slug regeneration if explicitly set to empty ---
-    if (array_key_exists('slug', $data) && ($data['slug'] === null || $data['slug'] === '')) {
-        $base = Str::slug($data['name'] ?? $store->name) ?: Str::random(8);
-        // use the same uniqueSlug logic as createShop if you have it
-        if (method_exists($this, 'uniqueSlug')) {
-            $data['slug'] = $this->uniqueSlug($base, $store->id);
-        } else {
-            $slug = $base; $i = 1;
-            while (Store::withTrashed()
-                    ->where('slug', $slug)
-                    ->where('id','<>',$store->id)
-                    ->exists()) {
-                $slug = $base.'-'.$i++;
-            }
-            $data['slug'] = $slug;
-        }
+    // Prepare logo replacement if provided
+    $newLogoPath = null;
+    if ($request->hasFile('logo_path') && $request->file('logo_path')->isValid()) {
+        $file = $request->file('logo_path');
+        $ext  = strtolower($file->getClientOriginalExtension() ?: $file->extension());
+        $base = $data['slug'] ?? $store->slug ?? Str::slug($data['name'] ?? $store->name) ?: Str::random(8);
+        $filename = $base . '-' . Str::random(8) . '.' . $ext;
+
+        Storage::disk('local')->makeDirectory('store'); // public/store
+        $newLogoPath = Storage::disk('local')->putFileAs('store', $file, $filename); // "store/xxx.png"
     }
 
-    // --- Persist store + (optional) hours atomically ---
-    DB::transaction(function () use ($store, $data) {
-        // Update store fields
+    // Persist atomically
+    DB::transaction(function () use ($store, $data, $newLogoPath) {
+        // Slug regeneration if explicitly null/empty
+        if (array_key_exists('slug',$data) && ($data['slug'] === null || $data['slug'] === '')) {
+            $base = Str::slug($data['name'] ?? $store->name) ?: Str::random(8);
+            if (method_exists($this,'uniqueSlug')) {
+                $data['slug'] = $this->uniqueSlug($base, $store->id);
+            } else {
+                $slug = $base; $i = 1;
+                while (Store::withTrashed()->where('slug',$slug)->where('id','<>',$store->id)->exists()) {
+                    $slug = $base.'-'.$i++;
+                }
+                $data['slug'] = $slug;
+            }
+        }
+
+        // Apply fields
         $store->fill($data);
+        if ($newLogoPath) {
+            $store->logo_path = $newLogoPath; // switch to new file
+        }
         $store->save();
 
-        // Replace hours only if client sent business_hours
+        // Replace hours if provided
         if (array_key_exists('business_hours', $data)) {
-            BusinessHour::where('store_id', $store->id)->delete();
-
+            \App\Models\BusinessHour::where('store_id',$store->id)->delete();
             $rows = [];
-            $now  = now();
+            $now = now();
             foreach ($data['business_hours'] as $bh) {
                 $rows[] = [
-                    'store_id'   => $store->id,
-                    'weekday'    => (int)$bh['weekday'],
-                    'open_at'    => $bh['open_at']  ?? null,
-                    'close_at'   => $bh['close_at'] ?? null,
-                    'is_closed'  => (int)($bh['is_closed'] ?? false),
-                    'created_at' => $now,
-                    'updated_at' => $now,
+                    'store_id'  => $store->id,
+                    'weekday'   => (int)$bh['weekday'],
+                    'open_at'   => $bh['open_at']  ?? null,
+                    'close_at'  => $bh['close_at'] ?? null,
+                    'is_closed' => (int)($bh['is_closed'] ?? false),
+                    'created_at'=> $now,
+                    'updated_at'=> $now,
                 ];
             }
-            if (!empty($rows)) {
-                BusinessHour::insert($rows);
-            }
+            if ($rows) \App\Models\BusinessHour::insert($rows);
         }
     });
 
-    // Reload + return
+    // After commit: delete old file only if we actually replaced it
+    if ($newLogoPath && $store->getOriginal('logo_path') && $store->getOriginal('logo_path') !== $newLogoPath) {
+        Storage::disk('local')->delete($store->getOriginal('logo_path'));
+    }
+
+    // Reload hours and return
     $hours = $store->businessHours()->orderBy('weekday')->get();
 
     return $this->returnData('store', [
@@ -683,14 +706,15 @@ public function updateShop(Store $store, Request $request)
         'owner_id'          => $store->owner_id,
         'name'              => $store->name,
         'slug'              => $store->slug,
-        'logo_path'         => $store->logo_path,
+        'logo_path'         => $store->logo_path,                 // "store/abc.png"
+        'logo_url'          => $store->logo_path ? asset($store->logo_path) : null, // "/store/abc.png"
         'brand_color'       => $store->brand_color,
         'description'       => $store->description,
         'address'           => $store->address,
         'lat'               => $store->lat,
         'lng'               => $store->lng,
         'is_active'         => (bool)$store->is_active,
-        'delivery_settings' => null,
+        'delivery_settings' => $store->delivery_settings,
         'country'           => $store->country,
         'city'              => $store->city,
         'created_at'        => $store->created_at,
@@ -698,6 +722,7 @@ public function updateShop(Store $store, Request $request)
         'business_hours'    => $hours,
     ], 'Store updated');
 }
+
     /**
      * POST /api/owner/orders/{order}/state
      * Body: { state: "ready_to_delivery" | "delivered_to_delivery_boy" }
