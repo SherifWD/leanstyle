@@ -13,6 +13,7 @@ use App\Traits\backendTraits;
 use App\Traits\HelpersTrait;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
 use Tymon\JWTAuth\Facades\JWTAuth;
 
 class OwnerController extends Controller
@@ -37,29 +38,33 @@ $user = $request->user()                      // preferred (current guard)
     }
 
     /** POST /api/owner/shops */
-    public function createShop(Request $request)
+   public function createShop(Request $request)
 {
-    $user = $request->user()                      // preferred (current guard)
-         ?? Auth::guard('api')->user()            // explicit api guard
-         ?? (JWTAuth::check() ? JWTAuth::user() : null); // fallback for JWTAuth
+    // Resolve current user (api/customer/etc.)
+    $user = $request->user()
+         ?? Auth::guard('api')->user()
+         ?? (JWTAuth::check() ? JWTAuth::user() : null);
+
     if (!$user) {
         return $this->returnError(401, 'Unauthenticated. Provide a valid Bearer token.');
     }
-    // 1) Validate (lightweight rules; handle close>open manually)
+
+    // 1) Validate
     $data = $request->validate([
         'name'              => ['required','string','max:255'],
         'slug'              => [
             'nullable','string','max:255','regex:/^[a-z0-9-]+$/',
             Rule::unique('stores','slug')->whereNull('deleted_at'),
         ],
-        'logo_path'         => ['nullable','file','max:255'],
+        // image max 5MB; adjust as needed
+        'logo_path'         => ['nullable','image','mimes:jpg,jpeg,png,webp,avif','max:5120'],
         'brand_color'       => ['nullable','string','max:255'],
         'description'       => ['nullable','string'],
         'address'           => ['nullable','string','max:255'],
         'lat'               => ['nullable','numeric','between:-90,90'],
         'lng'               => ['nullable','numeric','between:-180,180'],
         'is_active'         => ['nullable','boolean'],
-        'delivery_settings' => ['nullable'], // keep as-is or add normalization later
+        'delivery_settings' => ['nullable'], // keep raw; cast in model if needed
         'country'           => ['nullable','string','max:255'],
         'city'              => ['nullable','string','max:255'],
 
@@ -70,7 +75,7 @@ $user = $request->user()                      // preferred (current guard)
         'business_hours.*.is_closed'     => ['boolean'],
     ]);
 
-    // 2) Manual per-row time validation (faster + correct with wildcards)
+    // 2) Validate open/close per row
     foreach ($data['business_hours'] as $i => $bh) {
         $closed = (bool)($bh['is_closed'] ?? false);
         if (!$closed && !empty($bh['open_at']) && !empty($bh['close_at'])) {
@@ -80,53 +85,66 @@ $user = $request->user()                      // preferred (current guard)
         }
     }
 
-    // 3) Compute slug with ONE query (and keep it!)
+    // 3) Slug
     $slug = $data['slug'] ?? Str::slug($data['name']) ?: Str::random(8);
     $slug = $this->uniqueSlug($slug);
 
-    // 4) Create store + hours atomically, efficiently
-    $store = DB::transaction(function () use ($user, $data, $slug) {
+    // 4) Handle logo upload to public/store (relative path like "store/abc.jpg")
+    $uploadedPath = null;
+    if ($request->hasFile('logo_path')) {
+        $file = $request->file('logo_path');
+        $filename = $slug . '-' . Str::random(8) . '.' . $file->getClientOriginalExtension();
+        // saves to storage/app/public/store/...
+        $uploadedPath = $file->storeAs('store', $filename, 'public');
+    }
 
-        $store = new Store();
-        $store->owner_id          = $user->id;
-        $store->name              = $data['name'];
-        $store->slug              = $slug; 
-        $store->logo_path = $data['logo_path'];
-        // if ($data['logo_path']) {
-        //     $imagePath = $data['logo_path']->store('images');
-        //     $store->forceFill(['logo_path' => $imagePath]);
-        // }
-        $store->brand_color       = $data['brand_color']      ?? null;
-        $store->description       = $data['description']      ?? null;
-        $store->address           = $data['address']          ?? null;
-        $store->lat               = $data['lat']              ?? null;
-        $store->lng               = $data['lng']              ?? null;
-        $store->is_active         = array_key_exists('is_active',$data) ? (bool)$data['is_active'] : true;
-        $store->delivery_settings = $data['delivery_settings']?? null;
-        $store->country           = $data['country']          ?? null;
-        $store->city              = $data['city']             ?? null;
-        $store->save();
+    try {
+        // 5) Create store + hours atomically
+        $store = DB::transaction(function () use ($user, $data, $slug, $uploadedPath) {
 
-        // Bulk insert business hours (1 query)
-        $rows = [];
-        $now  = now();
-        foreach ($data['business_hours'] as $bh) {
-            $rows[] = [
-                'store_id'  => $store->id,
-                'weekday'   => (int)$bh['weekday'],
-                'open_at'   => $bh['open_at']  ?? null,
-                'close_at'  => $bh['close_at'] ?? null,
-                'is_closed' => (int)($bh['is_closed'] ?? false),
-                'created_at'=> $now,
-                'updated_at'=> $now,
-            ];
+            $store = new \App\Models\Store();
+            $store->owner_id          = $user->id;
+            $store->name              = $data['name'];
+            $store->slug              = $slug;
+            $store->logo_path         = $uploadedPath; // stored relative path (e.g., "store/xxx.jpg")
+            $store->brand_color       = $data['brand_color']      ?? null;
+            $store->description       = $data['description']      ?? null;
+            $store->address           = $data['address']          ?? null;
+            $store->lat               = $data['lat']              ?? null;
+            $store->lng               = $data['lng']              ?? null;
+            $store->is_active         = array_key_exists('is_active',$data) ? (bool)$data['is_active'] : true;
+            $store->delivery_settings = $data['delivery_settings']?? null; // consider JSON cast on the model
+            $store->country           = $data['country']          ?? null;
+            $store->city              = $data['city']             ?? null;
+            $store->save();
+
+            // Bulk insert business hours
+            $rows = [];
+            $now  = now();
+            foreach ($data['business_hours'] as $bh) {
+                $rows[] = [
+                    'store_id'  => $store->id,
+                    'weekday'   => (int)$bh['weekday'],
+                    'open_at'   => $bh['open_at']  ?? null,
+                    'close_at'  => $bh['close_at'] ?? null,
+                    'is_closed' => (int)($bh['is_closed'] ?? false),
+                    'created_at'=> $now,
+                    'updated_at'=> $now,
+                ];
+            }
+            \App\Models\BusinessHour::insert($rows);
+
+            return $store;
+        });
+    } catch (\Throwable $e) {
+        // If DB failed after file saved, clean up file
+        if ($uploadedPath) {
+            Storage::disk('public')->delete($uploadedPath);
         }
-        BusinessHour::insert($rows);
+        throw $e;
+    }
 
-        return $store;
-    });
-
-    // Eager load to return
+    // Eager load hours for response
     $hours = $store->businessHours()->orderBy('weekday')->get();
 
     return $this->returnData('store', [
@@ -134,14 +152,15 @@ $user = $request->user()                      // preferred (current guard)
         'owner_id'          => $store->owner_id,
         'name'              => $store->name,
         'slug'              => $store->slug,
-        'logo_path'         => $store->logo_path,
+        'logo_path'         => $store->logo_path, // e.g., "store/abc.jpg"
+        'logo_url'          => $store->logo_path ? Storage::disk('public')->url($store->logo_path) : null, // e.g., "/storage/store/abc.jpg"
         'brand_color'       => $store->brand_color,
         'description'       => $store->description,
         'address'           => $store->address,
         'lat'               => $store->lat,
         'lng'               => $store->lng,
         'is_active'         => (bool)$store->is_active,
-        'delivery_settings' => null,
+        'delivery_settings' => $store->delivery_settings,
         'country'           => $store->country,
         'city'              => $store->city,
         'created_at'        => $store->created_at,
