@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\HomeController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\SearchController;
+use App\Http\Controllers\Api\SupportController;
 use Illuminate\Support\Facades\Route;
 
 
@@ -19,11 +20,15 @@ Route::prefix('auth')->group(function () {
     Route::post('logout',   [AuthController::class, 'logout'])->middleware('auth:api');
     Route::get('me',        [AuthController::class, 'me'])->middleware('auth:api');
     Route::post('update-password', [AuthController::class, 'updatePassword'])->middleware('auth:api');
-    Route::post('forgot/request', [AuthController::class, 'forgotRequest']);
-    Route::post('forgot/verify',  [AuthController::class, 'forgotVerify']);
-    Route::post('forgot/reset',   [AuthController::class, 'forgotReset']);
-});
+    
+    Route::post('auth/forgot/request', [AuthController::class,'forgotRequest']);
+Route::post('auth/forgot/verify',  [AuthController::class,'forgotVerify']);
+Route::post('auth/forgot/reset',   [AuthController::class,'forgotReset']);
 
+});
+Route::middleware(['auth:api,customer'])->group(function () {
+    Route::post('support/tickets', [SupportController::class,'store']);
+});
 // Public
 Route::get('home', [\App\Http\Controllers\Api\HomeController::class, 'index']);
 Route::get('products', [\App\Http\Controllers\Api\HomeController::class, 'products']);
@@ -92,6 +97,8 @@ Route::prefix('driver')
         Route::post('shops',             [\App\Http\Controllers\Api\OwnerController::class, 'createShop']);
 
         Route::get('orders',             [\App\Http\Controllers\Api\OwnerController::class, 'myOrders']);
+        Route::get('no-orders',             [\App\Http\Controllers\Api\OwnerController::class, 'noOrders']);
+        Route::get('not-rej-orders',             [\App\Http\Controllers\Api\OwnerController::class, 'notRejOrders']);
         Route::post('orders/{order}/state', [\App\Http\Controllers\Api\OwnerController::class, 'updateOrderState']);
 
         Route::post('products',          [\App\Http\Controllers\Api\OwnerController::class, 'createProduct']);

@@ -199,6 +199,54 @@ private function uniqueSlug(string $base): string
 
         return $this->returnData('orders', $orders, 'Store orders');
     }
+    public function noOrders(Request $request)
+    {
+        $uid = $request->user('api')->id;
+        $statuses = ['rejected', 'cancelled', 'delivered']; // optional
+
+        $q = Order::query()
+            ->whereHas('store', fn($s) => $s->where('owner_id', $uid))
+            ->whereIn('status',$statuses)
+            ->with(['store','customer','items.product','items.productVariant','assignment','driver'])
+            ->latest('id');
+
+        
+        $orders = $q->paginate($request->integer('per_page', 20));
+
+        return $this->returnData('orders', $orders, 'Store orders');
+    }
+    public function notRejOrders(Request $request)
+    {
+        $uid = $request->user('api')->id;
+        $statuses = ['rejected', 'cancelled', 'delivered']; // optional
+
+        $q = Order::query()
+            ->whereHas('store', fn($s) => $s->where('owner_id', $uid))
+            ->whereNotIn('status',$statuses)
+            ->with(['store','customer','items.product','items.productVariant','assignment','driver'])
+            ->latest('id');
+
+        
+        $orders = $q->paginate($request->integer('per_page', 20));
+
+        return $this->returnData('orders', $orders, 'Store orders');
+    }
+    public function noOrders(Request $request)
+    {
+        $uid = $request->user('api')->id;
+        $statuses = ['rejected', 'cancelled', 'delivered']; // optional
+
+        $q = Order::query()
+            ->whereHas('store', fn($s) => $s->where('owner_id', $uid))
+            ->whereIn('status',$statuses)
+            ->with(['store','customer','items.product','items.productVariant','assignment','driver'])
+            ->latest('id');
+
+        
+        $orders = $q->paginate($request->integer('per_page', 20));
+
+        return $this->returnData('orders', $orders, 'Store orders');
+    }
 
     /** POST /api/owner/products  (creates product in one of my shops) */
     public function createProduct(Request $request)
