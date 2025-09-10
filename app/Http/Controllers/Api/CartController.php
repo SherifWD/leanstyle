@@ -41,62 +41,75 @@ class CartController extends Controller
 
     // POST /api/cart/add {product_id, product_variant_id?, qty}
     public function add(Request $request)
-    {
-        $data = $request->validate([
-            'product_id'         => ['required','exists:products,id'],
-            'product_variant_id' => ['nullable','exists:product_variants,id'],
-            'qty'                => ['nullable','integer','min:1'],
-        ]);
-        $qty = (int)($data['qty'] ?? 1);
+{
+    $data = $request->validate([
+        'product_id'         => ['required','exists:products,id'],
+        'product_variant_id' => ['nullable','exists:product_variants,id'],
+        'qty'                => ['nullable','integer','min:1'],
+    ]);
+    $qty = (int)($data['qty'] ?? 1);
 
-        $cart    = $this->myCart($request);
-        $product = Product::with('images')->findOrFail($data['product_id']);
+    $cart    = $this->myCart($request);
+    $product = Product::findOrFail($data['product_id']); // images not needed here
 
-        $variant = null;
-        if (!empty($data['product_variant_id'])) {
-            $variant = ProductVariant::findOrFail($data['product_variant_id']);
-            abort_if($variant->product_id !== $product->id, 422, 'Variant mismatch');
-            abort_if($variant->stock < $qty, 422, 'Insufficient stock for variant');
-        } else {
-            abort_if($product->stock < $qty && $product->variants()->count() === 0, 422, 'Insufficient stock');
-        }
-
-        // merge line if same product+variant
-        $line = $cart->items()
-            ->where('product_id', $product->id)
-            ->where('product_variant_id', $variant?->id)
-            ->first();
-
-        $unit = (float)($variant->discount_price ?? $variant->price ?? $product->discount_price ?? $product->price);
-
-        if ($line) {
-            $newQty = $line->qty + $qty;
-            abort_if($variant?->stock !== null && $newQty > $variant->stock, 422, 'Insufficient stock');
-            $line->qty        = $newQty;
-            $line->unit_price = $unit;
-            $line->line_total = $unit * $newQty - (float)$line->discount;
-            $line->save();
-        } else {
-            $cart->items()->create([
-                'product_id'         => $product->id,
-                'product_variant_id' => $variant?->id,
-                'name'               => $product->name,
-                'options'            => $variant ? [
-                    'color' => $variant->color?->name,
-                    'size'  => $variant->size?->name,
-                ] : null,
-                'qty'        => $qty,
-                'unit_price' => $unit,
-                'discount'   => 0,
-                'line_total' => $unit * $qty,
-            ]);
-        }
-
-        $cart->refresh();
-        $this->recalculate($cart);
-
-        return $this->returnData('cart', $this->payload($cart), 'Item added to cart');
+    $variant = null;
+    if (!empty($data['product_variant_id'])) {
+        $variant = ProductVariant::findOrFail($data['product_variant_id']);
+        abort_if($variant->product_id !== $product->id, 422, 'Variant mismatch');
+        abort_if($variant->stock < $qty, 422, 'Insufficient stock for variant');
+    } else {
+        abort_if($product->stock < $qty && $product->variants()->count() === 0, 422, 'Insufficient stock');
     }
+
+    // robust effective price fallback (handles discounted_price or discount_price)
+    $unit = collect([
+        $variant?->discounted_price,
+        $variant?->discount_price,
+        $variant?->price,
+        $product->discounted_price,
+        $product->discount_price,
+        $product->price,
+    ])->first(fn($v) => $v !== null);
+
+    $unit = (float) $unit; // cast null→0 safely
+    // If you never allow 0-priced items, uncomment:
+    // abort_if($unit <= 0, 422, 'Invalid item price.');
+
+    // merge line if same product+variant
+    $line = $cart->items()
+        ->where('product_id', $product->id)
+        ->where('product_variant_id', $variant?->id)
+        ->first();
+
+    if ($line) {
+        $newQty = $line->qty + $qty;
+        abort_if($variant?->stock !== null && $newQty > $variant->stock, 422, 'Insufficient stock');
+        $line->qty        = $newQty;
+        $line->unit_price = $unit;
+        $line->line_total = ($unit - (float)$line->discount) * $newQty;
+        $line->save();
+    } else {
+        $cart->items()->create([
+            'product_id'         => $product->id,
+            'product_variant_id' => $variant?->id,
+            'name'               => $product->name,
+            'options'            => $variant ? [
+                'color' => $variant->color?->name,
+                'size'  => $variant->size?->name,
+            ] : null, // <-- stays array; cast handles JSON
+            'qty'        => $qty,
+            'unit_price' => $unit,
+            'discount'   => 0,
+            'line_total' => ($unit - 0) * $qty,
+        ]);
+    }
+
+    $cart->refresh();
+    $this->recalculate($cart);
+
+    return $this->returnData('cart', $this->payload($cart), 'Item added to cart');
+}
+
 
     // POST /api/cart/update {item_id, qty}
     public function updateItem(Request $request)
