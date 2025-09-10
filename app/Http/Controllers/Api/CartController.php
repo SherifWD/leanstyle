@@ -15,14 +15,22 @@ class CartController extends Controller
     use backendTraits, HelpersTrait;
 
     private function myCart(Request $request): Cart
-    {
-        $cart = Cart::firstOrCreate([
-            'user_id' => $request->user('customer')->id,
-            'status'  => 'active',
-        ]);
-        $cart->load('items');
-        return $cart;
+{
+    $cart = Cart::firstOrCreate(
+        ['user_id' => $request->user('customer')->id, 'status' => 'active'],
+        ['payment_method' => 'cod'] // default on create
+    );
+
+    // Backfill if an old cart exists without a value
+    if (empty($cart->payment_method)) {
+        $cart->payment_method = 'cod';
+        $cart->save();
     }
+
+    $cart->load('items');
+    return $cart;
+}
+
 
     // GET /api/cart
     public function show(Request $request)
@@ -200,9 +208,13 @@ private function defaultVerifiedAddress(\App\Models\Customer $customer)
     // FIX: use the customer guard (cart belongs to customers)
     $customer = $request->user('customer');
     $cart = $this->myCart($request)->load('items');
-
+    
     abort_if($cart->items->isEmpty(), 422, 'Cart is empty');
-    abort_if(!$cart->payment_method, 422, 'Select payment method');
+    if (empty($cart->payment_method)) {
+    $cart->payment_method = 'cod';
+    $cart->save();
+}
+
 
     // Resolve address: selected → validated OR default verified
     $addr = null;
