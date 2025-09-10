@@ -88,37 +88,52 @@ class HomeController extends Controller
     /**
      * GET /api/products
      */
-    public function products(Request $request)
-    {
-        $q = Product::query()->where('is_active', true);
+    
 
-        $q->when($request->filled('q'), fn($x) =>
-            $x->where(function ($inner) use ($request) {
-                $inner->where('name', 'like', '%'.$request->q.'%')
-                      ->orWhere('description', 'like', '%'.$request->q.'%');
-            })
-        );
-        $q->when($request->filled('category_id'), fn($x) => $x->where('category_id', $request->category_id));
-        $q->when($request->filled('store_id'), fn($x) => $x->where('store_id', $request->store_id));
-        $q->when($request->filled('brand_id'), fn($x) => $x->where('brand_id', $request->brand_id));
-        $q->when($request->filled('min_price'), fn($x) => $x->where('price', '>=', $request->min_price));
-        $q->when($request->filled('max_price'), fn($x) => $x->where('price', '<=', $request->max_price));
-        $q->when($request->filled('color_id'), fn($x) => $x->where('color_id', $request->color_id));
-        $q->when($request->filled('size_id'), fn($x) => $x->where('size_id', $request->size_id));
-        $q->when($request->filled('type'), fn($x) => $x->where('type', $request->type));
+public function products(Request $request)
+{
+    $q = Product::query()->where('is_active', true);
 
-        match ($request->get('sort')) {
-            'price_asc'  => $q->orderBy('price', 'asc'),
-            'price_desc' => $q->orderBy('price', 'desc'),
-            default      => $q->latest('id'),
-        };
+    // Effective price uses discounted_price when not null, else price
+    $effectivePriceSql = 'COALESCE(discounted_price, price)';
 
-        $products = $q->with('images')
-            ->paginate($request->integer('per_page', 16))
-            ->through(fn($p) => $this->productCard($p));
+    $q->when($request->filled('q'), fn($x) =>
+        $x->where(function ($inner) use ($request) {
+            $inner->where('name', 'like', '%'.$request->q.'%')
+                  ->orWhere('description', 'like', '%'.$request->q.'%');
+        })
+    );
 
-        return $this->returnData('products', $products, "Products List");
-    }
+    $q->when($request->filled('category_id'), fn($x) => $x->where('category_id', $request->category_id));
+    $q->when($request->filled('store_id'),    fn($x) => $x->where('store_id', $request->store_id));
+    $q->when($request->filled('brand_id'),    fn($x) => $x->where('brand_id', $request->brand_id));
+
+    // Use effective price for range filtering
+    $q->when($request->filled('min_price'), fn($x) => 
+        $x->whereRaw("$effectivePriceSql >= ?", [$request->min_price])
+    );
+    $q->when($request->filled('max_price'), fn($x) => 
+        $x->whereRaw("$effectivePriceSql <= ?", [$request->max_price])
+    );
+
+    $q->when($request->filled('color_id'), fn($x) => $x->where('color_id', $request->color_id));
+    $q->when($request->filled('size_id'),  fn($x) => $x->where('size_id', $request->size_id));
+    $q->when($request->filled('type'),     fn($x) => $x->where('type', $request->type));
+
+    // Optional but recommended: sort by effective price too
+    match ($request->get('sort')) {
+        'price_asc'  => $q->orderByRaw("$effectivePriceSql asc"),
+        'price_desc' => $q->orderByRaw("$effectivePriceSql desc"),
+        default      => $q->latest('id'),
+    };
+
+    $products = $q->with('images')
+        ->paginate($request->integer('per_page', 16))
+        ->through(fn($p) => $this->productCard($p));
+
+    return $this->returnData('products', $products, "Products List");
+}
+
 
     /**
      * GET /api/stores
