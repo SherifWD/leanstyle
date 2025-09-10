@@ -91,12 +91,11 @@ $user = $request->user()                      // preferred (current guard)
 
     // 4) Handle logo upload to public/store (relative path like "store/abc.jpg")
     $uploadedPath = null;
+    
     if ($request->hasFile('logo_path')) {
-        $file = $request->file('logo_path');
-        $filename = $slug . '-' . Str::random(8) . '.' . $file->getClientOriginalExtension();
-        // saves to storage/app/public/store/...
-        $uploadedPath = $file->storeAs('store', $filename, 'public');
-    }
+            $imagePath = $request->file('logo_path')->store('store');
+            $user->image = $imagePath;
+        }
 
     try {
         // 5) Create store + hours atomically
@@ -139,6 +138,7 @@ $user = $request->user()                      // preferred (current guard)
     } catch (\Throwable $e) {
         // If DB failed after file saved, clean up file
         if ($uploadedPath) {
+            
             Storage::disk('public')->delete($uploadedPath);
         }
         throw $e;
