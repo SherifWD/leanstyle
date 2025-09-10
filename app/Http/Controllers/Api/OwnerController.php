@@ -273,7 +273,8 @@ private function uniqueSlug(string $base): string
         'stock'           => ['nullable','integer','min:0'],
         'type'            => ['nullable','string','max:50'], // mens|women|child etc
         'is_active'       => ['boolean'],
-        'images' => ['array','file'],
+        'images'          => ['nullable','array'],
+        'images.*'        => ['file','image','mimes:jpg,jpeg,png,webp,avif','max:5120'],
         // NEW: base product weight (grams or your unit)
         'weight'          => ['nullable','numeric','min:0'],
 
