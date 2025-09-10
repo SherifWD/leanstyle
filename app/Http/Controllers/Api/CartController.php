@@ -219,9 +219,9 @@ private function defaultVerifiedAddress(\App\Models\Customer $customer)
     // Resolve address: selected → validated OR default verified
     $addr = null;
 
-    if ($cart->address_id) {
+    if ($cart->customer_address_id) {
         $addr = \App\Models\CustomerAddress::where('customer_id', $customer->id)
-            ->where('id', $cart->address_id)
+            ->where('id', $cart->customer_address_id)
             ->first();
         abort_if(!$addr, 422, 'Selected address not found.');
         abort_if(!$addr->is_verified, 422, 'Selected address is not verified.');
@@ -229,7 +229,7 @@ private function defaultVerifiedAddress(\App\Models\Customer $customer)
         $addr = $this->defaultVerifiedAddress($customer);
         abort_if(!$addr, 422, 'No default verified address found. Please verify or select an address.');
         // Persist the choice on cart for transparency (optional)
-        $cart->address_id = $addr->id;
+        $cart->customer_address_id = $addr->id;
         $cart->save();
     }
 
