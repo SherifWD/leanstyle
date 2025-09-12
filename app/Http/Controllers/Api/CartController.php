@@ -245,7 +245,7 @@ private function defaultVerifiedAddress(\App\Models\Customer $customer)
         $cart->save();
     }
 
-    $result = DB::transaction(function () use ($cart, $customer, $addr) {
+    $result = DB::transaction(function () use ($cart, $customer, $addr,$request) {
         // Create order
         $order = new Order();
         $order->store_id    = $cart->items->first()->product->store_id ?? $cart->store_id;
@@ -327,6 +327,9 @@ private function defaultVerifiedAddress(\App\Models\Customer $customer)
         ]);
 
         // Close cart
+        if($request->comment){
+            $cart->update(['comment' => $request->comment]);
+        }
         $cart->update(['status' => 'converted']);
 
         return [

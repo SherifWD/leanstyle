@@ -7,18 +7,26 @@ use App\Models\{Customer, Order};
 use Illuminate\Http\Request;
 use App\Traits\backendTraits;
 use App\Traits\HelpersTrait;
+use Illuminate\Http\JsonResponse;
 
 class OrderController extends Controller
 {
     use backendTraits, HelpersTrait;
 
-    private function meCustomer(Request $request): Customer
-    {
-        return Customer::firstOrCreate(
-            ['phone' => $request->user('customer')->phone],
-            ['name'  => $request->user('customer')->name]
-        );
+    
+
+private function meCustomer(Request $request): Customer|JsonResponse
+{
+    if (!$request->user('customer')) {
+        return $this->returnError(401, "You are not a customer");
     }
+
+    return Customer::firstOrCreate(
+        ['phone' => $request->user('customer')->phone],
+        ['name'  => $request->user('customer')->name]
+    );
+}
+
 
     // GET /api/orders?status=&per_page=
     public function index(Request $request)

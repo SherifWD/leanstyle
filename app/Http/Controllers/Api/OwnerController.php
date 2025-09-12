@@ -262,6 +262,11 @@ private function uniqueSlug(string $base): string
 {
     $uid = $request->user('api')->id;
 
+    // Normalize images: allow single file as "images" array
+    if ($request->hasFile('images') && !is_array($request->file('images'))) {
+        $request->files->set('images', [$request->file('images')]);
+    }
+
     $data = $request->validate([
         'store_id'        => ['required','exists:stores,id'],
         'name'            => ['required','string','max:190'],
@@ -347,14 +352,12 @@ private function uniqueSlug(string $base): string
             ]);
         }
     }
-    if($data['images']){
-        foreach($data['images'] as $image){
-            $p_image = new ProductImage();
-            $imagePath = $image->store('products');
-            $p_image->product_id = $p->id;
-            $p_image->path = $imagePath;
-            $p_image->save();
-        }
+    foreach (Arr::get($data, 'images', []) as $image) {
+        $p_image = new ProductImage();
+        $imagePath = $image->store('products');
+        $p_image->product_id = $p->id;
+        $p_image->path = $imagePath;
+        $p_image->save();
     }
     return $this->returnData('product', [
         'id'              => $p->id,
@@ -415,6 +418,14 @@ public function updateProduct(\App\Models\Product $product, Request $request)
         }
     }
 
+    // Optional: decode image_ids if sent as JSON string
+    if ($request->filled('image_ids') && is_string($request->image_ids)) {
+        $decoded = json_decode($request->image_ids, true);
+        if (json_last_error() === JSON_ERROR_NONE) {
+            $request->merge(['image_ids' => $decoded]);
+        }
+    }
+
     // --- Validate ---
     $data = $request->validate([
         'store_id'        => ['sometimes','required','exists:stores,id'],
@@ -429,9 +440,16 @@ public function updateProduct(\App\Models\Product $product, Request $request)
         'is_active'       => ['sometimes','boolean'],
         'weight'          => ['sometimes','nullable','numeric','min:0'],
 
-        // images replacement (if provided)
+        // images reconciliation
         'images'          => ['sometimes','array'],
         'images.*'        => ['file','image','mimes:jpg,jpeg,png,webp,avif','max:5120'],
+        'image_ids'       => ['sometimes','array'],
+        'image_ids.*'     => [
+            'integer',
+            Rule::exists('product_images','id')->where(function($q) use ($product) {
+                $q->where('product_id', $product->id);
+            })
+        ],
 
         // quick single-variant fields
         'size_id'         => ['sometimes','nullable','exists:sizes,id'],
@@ -522,22 +540,28 @@ public function updateProduct(\App\Models\Product $product, Request $request)
             }
         }
 
-        // Replace images if new files are uploaded
-        if ($request->hasFile('images')) {
-            // delete old files + rows
-            $old = $product->images()->get();
-            foreach ($old as $img) {
-                if ($img->path) Storage::disk('local')->delete($img->path); // local disk => public/
-            }
-            $product->images()->delete();
+        // Reconcile images if client provided image_ids (keep set) and/or new uploads
+        $providedKeepIds = array_key_exists('image_ids', $data) ? collect($data['image_ids'])->map(fn($i)=>(int)$i)->all() : null;
 
-            // save new
+        if ($providedKeepIds !== null) {
+            // Delete images not in keep list
+            $existing = $product->images()->get();
+            foreach ($existing as $img) {
+                if (!in_array((int)$img->id, $providedKeepIds, true)) {
+                    if ($img->path) Storage::disk('local')->delete($img->path);
+                    $img->delete();
+                }
+            }
+        }
+
+        // Append any newly uploaded files
+        if ($request->hasFile('images')) {
             Storage::disk('local')->makeDirectory('products');
             foreach ($request->file('images') as $file) {
                 if (!$file->isValid()) continue;
                 $ext  = strtolower($file->getClientOriginalExtension() ?: $file->extension());
                 $name = \Illuminate\Support\Str::slug($product->name) . '-' . \Illuminate\Support\Str::random(8) . '.' . $ext;
-                $path = Storage::disk('local')->putFileAs('products', $file, $name); // "products/xxx.jpg"
+                $path = Storage::disk('local')->putFileAs('products', $file, $name);
 
                 \App\Models\ProductImage::create([
                     'product_id' => $product->id,
@@ -609,6 +633,7 @@ public function updateShop(Store $store, Request $request)
         ],
         // allow file upload like createShop
         'logo_path'         => ['sometimes','nullable','image','mimes:jpg,jpeg,png,webp,avif','max:5120'],
+        'remove_logo'       => ['sometimes','boolean'],
         'brand_color'       => ['sometimes','nullable','string','max:255'],
         'description'       => ['sometimes','nullable','string'],
         'address'           => ['sometimes','nullable','string','max:255'],
@@ -638,8 +663,11 @@ public function updateShop(Store $store, Request $request)
         }
     }
 
-    // Prepare logo replacement if provided
+    // Prepare logo replacement/removal if provided
     $newLogoPath = null;
+    $removeLogo = array_key_exists('remove_logo', $data) ? (bool)$data['remove_logo'] : false;
+    unset($data['remove_logo']); // not a column
+    $oldLogoPath = $store->logo_path; // for cleanup after commit
     if ($request->hasFile('logo_path') && $request->file('logo_path')->isValid()) {
         $file = $request->file('logo_path');
         $ext  = strtolower($file->getClientOriginalExtension() ?: $file->extension());
@@ -651,7 +679,7 @@ public function updateShop(Store $store, Request $request)
     }
 
     // Persist atomically
-    DB::transaction(function () use ($store, $data, $newLogoPath) {
+    DB::transaction(function () use ($store, $data, $newLogoPath, $removeLogo) {
         // Slug regeneration if explicitly null/empty
         if (array_key_exists('slug',$data) && ($data['slug'] === null || $data['slug'] === '')) {
             $base = Str::slug($data['name'] ?? $store->name) ?: Str::random(8);
@@ -670,6 +698,8 @@ public function updateShop(Store $store, Request $request)
         $store->fill($data);
         if ($newLogoPath) {
             $store->logo_path = $newLogoPath; // switch to new file
+        } elseif ($removeLogo) {
+            $store->logo_path = null; // explicit delete
         }
         $store->save();
 
@@ -693,9 +723,11 @@ public function updateShop(Store $store, Request $request)
         }
     });
 
-    // After commit: delete old file only if we actually replaced it
-    if ($newLogoPath && $store->getOriginal('logo_path') && $store->getOriginal('logo_path') !== $newLogoPath) {
-        Storage::disk('local')->delete($store->getOriginal('logo_path'));
+    // After commit: delete old file if it was replaced or removed
+    if ($oldLogoPath) {
+        if (($newLogoPath && $oldLogoPath !== $newLogoPath) || (!$newLogoPath && $removeLogo)) {
+            Storage::disk('local')->delete($oldLogoPath);
+        }
     }
 
     // Reload hours and return
