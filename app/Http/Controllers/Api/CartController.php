@@ -27,7 +27,7 @@ class CartController extends Controller
         $cart->save();
     }
 
-    $cart->load('items');
+    $cart->load('items.product.images');
     return $cart;
 }
 
@@ -376,6 +376,7 @@ private function defaultVerifiedAddress(\App\Models\Customer $customer)
                 'unit_price'         => (float)$i->unit_price,
                 'discount'           => (float)$i->discount,
                 'line_total'         => (float)$i->line_total,
+                'product'            => $i->product,
             ]),
             'totals' => [
                 'subtotal'        => (float)$cart->subtotal,

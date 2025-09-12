@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\{Banner, Category, Store, Product, ProductImage, OrderItem, ProductView};
+use App\Models\{Banner, Category, Store, Product, ProductImage, OrderItem, ProductView,Order};
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use App\Traits\backendTraits;
@@ -48,7 +48,6 @@ class HomeController extends Controller
         $bestSellersIds = OrderItem::query()
             ->select('product_id', DB::raw('SUM(qty) as total_qty'))
             ->whereHas('order', fn($q) => $q->where('status', 'delivered'))
-            ->where('created_at', '>=', now()->subDays(30))
             ->groupBy('product_id')
             ->orderByDesc('total_qty')
             ->take($limit)
@@ -62,9 +61,9 @@ class HomeController extends Controller
 
         // Recently viewed (if logged in)
         $recentlyViewed = collect();
-        if ($request->user('api')) {
+        if ($request->user('customer')) {
             $recentIds = ProductView::query()
-                ->where('user_id', $request->user('api')->id)
+                ->where('user_id', $request->user('customer')->id)
                 ->latest('viewed_at')
                 ->take($limit)
                 ->pluck('product_id');
@@ -72,6 +71,7 @@ class HomeController extends Controller
                 ->with('images')
                 ->get()
                 ->map(fn($p) => $this->productCard($p));
+                
         }
 
         return $this->returnData('data', [
@@ -89,7 +89,47 @@ class HomeController extends Controller
      * GET /api/products
      */
     
+public function showP(Order $order, Request $request)
+    {
 
+
+        $order->load(['customer','items.product','items.productVariant.color','items.productVariant.size','items.productVariant.images','store:id,name,logo_path,address','assignment.driver:id,name,phone']);
+
+        $data = [
+            'id'             => $order->id,
+            'order_code'     => $order->order_code,
+            'status'         => $order->status,
+            'payment_method' => $order->payment_method,
+            'totals' => [
+                'subtotal'       => (float)$order->subtotal,
+                'discount_total' => (float)$order->discount_total,
+                'tax_total'      => (float)$order->tax_total,
+                'delivery_fee'   => (float)$order->delivery_fee,
+                'grand_total'    => (float)$order->grand_total,
+            ],
+            'shipping' => [
+                'address' => $order->ship_address,
+                'lat'     => $order->ship_lat,
+                'lng'     => $order->ship_lng,
+            ],
+            'items'  => $order->items->map(fn($i) => [
+                'name'       => $i->name,
+                'qty'        => (int)$i->qty,
+                'unit_price' => (float)$i->unit_price,
+                'line_total' => (float)$i->line_total,
+                'options'    => $i->options,
+                'product' => ['variant' => $i->productVariant]
+                
+            ]),
+            'store'  => $order->store,
+            'driver' => $order->assignment?->driver,
+            'customer' => $order->customer,
+            'address' => $order->address
+        ];
+
+        return $this->returnData('order', $data, "Order details");
+    }
+ 
 public function products(Request $request)
 {
     $q = Product::query()->where('is_active', true);
@@ -119,6 +159,10 @@ public function products(Request $request)
     $q->when($request->filled('color_id'), fn($x) => $x->where('color_id', $request->color_id));
     $q->when($request->filled('size_id'),  fn($x) => $x->where('size_id', $request->size_id));
     $q->when($request->filled('type'),     fn($x) => $x->where('type', $request->type));
+    $q->when($request->filled('text'), function ($x) use ($request) {
+    return $x->where('name', 'like', '%' . $request->text . '%');
+});
+
 
     // Optional but recommended: sort by effective price too
     match ($request->get('sort')) {
@@ -142,7 +186,7 @@ public function products(Request $request)
     {
         $q = Store::query()->where('is_active', true);
 
-        $q->when($request->filled('q'), fn($x) => $x->where('name', 'like', '%'.$request->q.'%'));
+        $q->when($request->filled('text'), fn($x) => $x->where('name', 'like', '%'.$request->text.'%'));
         $q->when($request->filled('area'), fn($x) => $x->where('address', 'like', '%'.$request->area.'%'));
 
         $stores = $q->paginate($request->integer('per_page', 12));
@@ -173,4 +217,27 @@ public function products(Request $request)
             'is_active'      => (bool)$p->is_active,
         ];
     }
+    public function getStore(Request $request)
+{
+    $request->validate([
+        'store_id' => ['required','integer','exists:stores,id'],
+    ]);
+
+    $store = Store::with([
+        'owner',        // the user that owns the store
+        'users',        // linked users/drivers
+        'businessHours',
+        'products.variants',
+        'categories',
+        'brands',
+        'orders',
+    ])->find($request->store_id);
+
+    if (!$store) {
+        return $this->returnError(404, 'Store not found');
+    }
+
+    return $this->returnData('data', $store, 200);
+}
+
 }

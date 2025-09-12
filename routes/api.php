@@ -18,7 +18,7 @@ Route::prefix('auth')->group(function () {
     Route::post('login',    [AuthController::class, 'login']);
     Route::post('refresh',  [AuthController::class, 'refresh'])->middleware('auth:api');
     Route::post('logout',   [AuthController::class, 'logout'])->middleware('auth:api');
-    Route::get('me',        [AuthController::class, 'me'])->middleware('auth:api');
+    Route::get('me',        [AuthController::class, 'me'])->middleware('auth:api,customer');
     Route::post('update-password', [AuthController::class, 'updatePassword'])->middleware('auth:api');
     
     Route::post('auth/forgot/request', [AuthController::class,'forgotRequest']);
@@ -44,12 +44,13 @@ Route::get('search',         [SearchController::class, 'search']);
 // Auth block already added earlier…
 
 // Authenticated user flow
-
+Route::get('orders-p/{order}',  [HomeController::class, 'showP']);
 Route::middleware('auth:api,customer')->group(function () {
     // Addresses
     Route::get('addresses',            [AddressController::class, 'index']);
     Route::post('addresses',           [AddressController::class, 'store']);
-    Route::get('send-otp/{phone}/{address}',           [AddressController::class, 'sendOTP']);
+   Route::get('send-otp', [AddressController::class, 'sendOTP']);
+
     Route::post('update-verified',           [AddressController::class, 'updateIsVerified']);
     Route::put('addresses/{address}',  [AddressController::class, 'update']);
     Route::delete('addresses/{address}',[AddressController::class, 'destroy']);
@@ -73,6 +74,7 @@ Route::middleware('auth:api,customer')->group(function () {
     Route::get('not-rej-orders',          [OrderController::class, 'noCusRejOrder']);
     Route::get('orders/{order}',  [OrderController::class, 'show']);
     Route::get('orders/{order}/timeline', [OrderController::class, 'timeline']);
+    Route::get('get-store', [HomeController::class, 'getStore']);
 });
 Route::prefix('driver')
     ->middleware(['auth:api','role:delivery_boy'])

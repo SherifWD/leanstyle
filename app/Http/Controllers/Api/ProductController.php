@@ -15,7 +15,6 @@ class ProductController extends Controller
     use backendTraits, HelpersTrait;
 
     
-
 public function show(Product $product, Request $request)
 {
     abort_if(!$product->is_active, 404);

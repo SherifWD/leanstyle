@@ -69,12 +69,18 @@ class AddressController extends Controller
 
         return $this->returnData('address', $address, 'Address Created');
     }
-    public function sendOTP($phone,$address){
-        return $this->returnData('otp','111111',200);
-    }
+   public function sendOTP(Request $request) {
+    $phone   = $request->query('phone');
+    $address = $request->query('address');
+
+    return $this->returnData('otp', '1111', 200);
+}
+
     public function updateIsVerified(Request $request){
-        if($request->otp == "111111" && $request->address_id){
-            $address = CustomerAddress::find($request->address_id)->update(['is_verified'=>1]);
+        if($request->otp == "1111" && $request->address_id){
+            $address = CustomerAddress::find($request->address_id);
+            $address->is_verified = 1;
+            $address->save();
         }
         return $this->returnSuccessMessage('Address Verified');
     }

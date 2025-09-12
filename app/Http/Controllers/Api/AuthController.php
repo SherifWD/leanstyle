@@ -211,7 +211,11 @@ public function login(Request $request)
      */
     public function me(Request $request)
     {
+        if($request->user('api'))
         return $this->returnData('user', $this->userPayload($request->user('api')), 'Authenticated user data');
+        elseif ($request->user('customer')) {
+           return $this->returnData('user', $this->customerPayload($request->user('customer')), 'Authenticated user data');
+        }
     }
 
     /**
@@ -285,7 +289,7 @@ public function login(Request $request)
             'name'         => $user->name,
             'phone'        => $user->phone,
             'email'        => $user->email,
-            'role'         => $user->role,
+            'role'         => 'customer',
             'store_id'     => $user->store_id,
             'is_blocked'   => (bool)$user->is_blocked,
             'is_available' => (bool)$user->is_available,

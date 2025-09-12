@@ -48,6 +48,7 @@ class OrderController extends Controller
 
     $orders = Order::query()
         ->where('customer_id', $customer->id)
+        ->with('items')
         ->whereIn('status', $statuses)
         ->latest('id')
         ->paginate($request->integer('per_page', 15))
@@ -57,6 +58,7 @@ class OrderController extends Controller
             'status'      => $o->status,
             'grand_total' => (float) $o->grand_total,
             'created_at'  => $o->created_at?->toIso8601String(),
+            'items'       => $o->items
         ]);
 
     return $this->returnData('orders', $orders, 'Orders list');
@@ -69,6 +71,7 @@ class OrderController extends Controller
 
     $orders = Order::query()
         ->where('customer_id', $customer->id)
+        ->with('items')
         ->whereNotIn('status', $statuses)
         ->latest('id')
         ->paginate($request->integer('per_page', 15))
@@ -78,6 +81,7 @@ class OrderController extends Controller
             'status'      => $o->status,
             'grand_total' => (float) $o->grand_total,
             'created_at'  => $o->created_at?->toIso8601String(),
+            'items'       => $o->items
         ]);
 
     return $this->returnData('orders', $orders, 'Orders list');
@@ -88,10 +92,10 @@ class OrderController extends Controller
     public function show(Order $order, Request $request)
     {
         $customer = $this->meCustomer($request);
-        abort_if($order->customer_id !== $customer->id, 403);
+        if($order->customer_id !== $customer->id)
+        return $this->returnData('data',[], 403);
 
         $order->load(['customer','items','store:id,name,logo_path,address','assignment.driver:id,name,phone']);
-
         $data = [
             'id'             => $order->id,
             'order_code'     => $order->order_code,
