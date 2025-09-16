@@ -19,7 +19,7 @@ Route::prefix('auth')->group(function () {
     Route::post('refresh',  [AuthController::class, 'refresh'])->middleware('auth:api');
     Route::post('logout',   [AuthController::class, 'logout'])->middleware('auth:api');
     Route::get('me',        [AuthController::class, 'me'])->middleware('auth:api,customer');
-    Route::post('update-password', [AuthController::class, 'updatePassword'])->middleware('auth:api');
+    Route::post('update-password', [AuthController::class, 'updatePassword'])->middleware('auth:api,customer');
     
     Route::post('forgot/request', [AuthController::class,'forgotRequest']);
 Route::post('forgot/verify',  [AuthController::class,'forgotVerify']);
