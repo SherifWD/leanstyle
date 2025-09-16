@@ -743,7 +743,7 @@ public function updateShop(Store $store, Request $request)
     $newLogoPath = null;
     $removeLogo = array_key_exists('remove_logo', $data) ? (bool)$data['remove_logo'] : false;
     unset($data['remove_logo']); // not a column
-    $oldLogoPath = $store->logo_path; // for cleanup after commit
+    $oldLogoPath = $store->getRawOriginal('logo_path'); // raw value for deletion
     if ($request->hasFile('logo_path') && $request->file('logo_path')->isValid()) {
         $file = $request->file('logo_path');
         $ext  = strtolower($file->getClientOriginalExtension() ?: $file->extension());
@@ -808,7 +808,8 @@ public function updateShop(Store $store, Request $request)
         }
     }
 
-    // Reload hours and return
+    // Reload from DB to ensure fresh attributes, then load hours
+    $store->refresh();
     $hours = $store->businessHours()->orderBy('weekday')->get();
 
     return $this->returnData('store', [
