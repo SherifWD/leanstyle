@@ -486,7 +486,6 @@ public function updateProduct(\App\Models\Product $product, Request $request)
         'variants.*._delete'               => ['sometimes','boolean'],
         'variants.*.color_id'              => ['sometimes','nullable','exists:colors,id'],
         'variants.*.size_id'               => ['sometimes','nullable','exists:sizes,id'],
-        'variants.*.sku'                   => ['sometimes','nullable','string','max:255'],
         'variants.*.price'                 => ['sometimes','nullable','numeric','min:0'],
         'variants.*.discount_price'        => ['sometimes','nullable','numeric','min:0','lte:variants.*.price'],
         'variants.*.stock'                 => ['sometimes','nullable','integer','min:0'],
@@ -546,7 +545,6 @@ public function updateProduct(\App\Models\Product $product, Request $request)
                             'discount_price' => array_key_exists('discount_price',$v) ? $v['discount_price'] : $pv->discount_price,
                             'stock'          => array_key_exists('stock',$v) ? (int)$v['stock'] : $pv->stock,
                             'is_active'      => array_key_exists('is_active',$v) ? (bool)$v['is_active'] : $pv->is_active,
-                            'sku'            => array_key_exists('sku',$v) ? $v['sku'] : $pv->sku,
                         ])->save();
                     }
                 } else {
@@ -555,7 +553,6 @@ public function updateProduct(\App\Models\Product $product, Request $request)
                         'product_id'      => $product->id,
                         'color_id'        => Arr::get($v,'color_id'),
                         'size_id'         => Arr::get($v,'size_id'),
-                        'sku'             => Arr::get($v,'sku', \Illuminate\Support\Str::slug($product->name).'-'.\Illuminate\Support\Str::random(6)),
                         'price'           => Arr::get($v,'price', $product->price),
                         'discount_price'  => Arr::get($v,'discount_price'),
                         'stock'           => (int) Arr::get($v,'stock', 0),
@@ -672,7 +669,6 @@ public function updateProduct(\App\Models\Product $product, Request $request)
             'is_active'=> (bool)$v->is_active,
             'color_id'=> $v->color_id,
             'size_id'=> $v->size_id,
-            'sku'=> $v->sku,
         ])->values(),
     ], 'Product updated');
 }
