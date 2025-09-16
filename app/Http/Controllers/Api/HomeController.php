@@ -164,7 +164,7 @@ public function products(Request $request)
 });
 if($request->filled('offer') && $request->offer == 1){
     $q->when($request->filled('offer'), function ($x) use ($request) {
-    return $x->whereNotNull('discount_price');
+    return $x->whereNotNull('discount_price')->where('discount_price','>',0);
 });
 }
 
