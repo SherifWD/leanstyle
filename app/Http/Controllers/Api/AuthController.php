@@ -154,58 +154,95 @@ public function forgotReset(Request $request)
 // }
 
 
-public function login(Request $request)
-{
-    $data = $request->validate([
-        'login'    => ['required','string'],
-        'password' => ['required','string'],
-    ]);
+    public function login(Request $request)
+    {
+        $data = $request->validate([
+            'login'    => ['required','string','max:190'],
+            'password' => ['required','string','max:255'],
+            'role'     => ['sometimes','string','in:admin,shop_owner,customer'],
+        ]);
 
-    if ($user = User::where('phone', $data['login'])->first()) {
-        if (!Hash::check($data['password'], $user->password)) {
-            return $this->returnError('Invalid credentials', 422);
-        }
-        if ($user->is_blocked) return $this->returnError('Account is blocked', 403);
+        $login = $data['login'];
+        $isEmail = filter_var($login, FILTER_VALIDATE_EMAIL) !== false || str_contains($login, '@');
 
-        $token = auth('api')->login($user);
-        return $this->returnData('auth', [
-            'guard' => 'api',
-            'user'  => $this->userPayload($user),
-            'token' => [
-                'access_token' => $token,
-                'token_type'   => 'bearer',
-                'expires_in'   => auth('api')->factory()->getTTL() * 60,
-            ],
-        ], 'Login successful');
-    }
+        // Try User guard first (admin/shop_owner)
+        $userQuery = User::query();
+        $user = $isEmail
+            ? $userQuery->where('email', $login)->first()
+            : $userQuery->where('phone', $login)->first();
 
-    if (class_exists(Customer::class)) {
-        if ($customer = Customer::where('phone', $data['login'])->first()) {
-            if (!Hash::check($data['password'], $customer->password)) {
+        if ($user) {
+            $hashed = (string) ($user->password ?? '');
+            if ($hashed === '' || !Hash::check($data['password'], $hashed)) {
                 return $this->returnError('Invalid credentials', 422);
             }
+            if (!empty($data['role']) && (string)$user->role !== (string)$data['role']) {
+                return $this->returnError('Role mismatch for this account', 403);
+            }
+            if (!empty($user->is_blocked)) {
+                return $this->returnError('Account is blocked', 403);
+            }
 
-            $token = auth('customer')->login($customer);
+            try {
+                $token = auth('api')->login($user);
+            } catch (\Throwable $e) {
+                return $this->returnError('Authentication failed', 401);
+            }
+
             return $this->returnData('auth', [
-                'guard' => 'customer',
-                'user'  => [
-                    'id'     => $customer->id,
-                    'name'   => $customer->name,
-                    'phone'  => $customer->phone,
-                    'email'  => $customer->email,
-                    'role'   => 'customer',
-                ],
+                'guard' => 'api',
+                'user'  => $this->userPayload($user),
                 'token' => [
                     'access_token' => $token,
                     'token_type'   => 'bearer',
-                    'expires_in'   => auth('customer')->factory()->getTTL() * 60,
+                    'expires_in'   => auth('api')->factory()->getTTL() * 60,
                 ],
             ], 'Login successful');
         }
-    }
 
-    return $this->returnError('Invalid credentials', 422);
-}
+        // Try Customer guard (by phone or email if applicable)
+        if (class_exists(Customer::class)) {
+            $custQuery = Customer::query();
+            $customer = $isEmail
+                ? $custQuery->where('email', $login)->first()
+                : $custQuery->where('phone', $login)->first();
+
+            if ($customer) {
+                $hashed = (string) ($customer->password ?? '');
+                if ($hashed === '' || !Hash::check($data['password'], $hashed)) {
+                    return $this->returnError('Invalid credentials', 422);
+                }
+                if (!empty($data['role']) && $data['role'] !== 'customer') {
+                    return $this->returnError('Role mismatch for this account', 403);
+                }
+
+                try {
+                    $token = auth('customer')->login($customer);
+                } catch (\Throwable $e) {
+                    return $this->returnError('Authentication failed', 401);
+                }
+
+                return $this->returnData('auth', [
+                    'guard' => 'customer',
+                    'user'  => [
+                        'id'     => $customer->id,
+                        'name'   => $customer->name,
+                        'phone'  => $customer->phone,
+                        'email'  => $customer->email,
+                        'role'   => 'customer',
+                    ],
+                    'token' => [
+                        'access_token' => $token,
+                        'token_type'   => 'bearer',
+                        'expires_in'   => auth('customer')->factory()->getTTL() * 60,
+                    ],
+                ], 'Login successful');
+            }
+        }
+
+        // Neither user nor customer matched
+        return $this->returnError('Invalid credentials', 422);
+    }
 
     /**
      * GET /api/auth/me

@@ -435,6 +435,14 @@ public function updateProduct(\App\Models\Product $product, Request $request)
         }
     }
 
+    // Optional: decode remove_image if sent as JSON string (array of 0-based indexes)
+    if ($request->filled('remove_image') && is_string($request->remove_image)) {
+        $decoded = json_decode($request->remove_image, true);
+        if (json_last_error() === JSON_ERROR_NONE) {
+            $request->merge(['remove_image' => $decoded]);
+        }
+    }
+
     // --- Validate ---
     $data = $request->validate([
         'store_id'        => ['sometimes','required','exists:stores,id'],
@@ -457,6 +465,14 @@ public function updateProduct(\App\Models\Product $product, Request $request)
             'integer',
             Rule::exists('product_images','id')->where(function($q) use ($product) {
                 $q->where('product_id', $product->id);
+            })
+        ],
+        'remove_image'    => ['sometimes','array'], // 0-based indexes within chosen scope
+        'remove_image.*'  => ['integer','min:0'],
+        'variant_id'      => [
+            'sometimes','nullable','integer',
+            Rule::exists('product_variants','id')->where(function($q) use ($product){
+                $q->where('product_id',$product->id);
             })
         ],
 
@@ -557,15 +573,62 @@ public function updateProduct(\App\Models\Product $product, Request $request)
             $existing = $product->images()->get();
             foreach ($existing as $img) {
                 if (!in_array((int)$img->id, $providedKeepIds, true)) {
-                    if ($img->path) Storage::disk('local')->delete($img->path);
+                    $raw = $img->getOriginal('path');
+                    if ($raw) Storage::disk('local')->delete($raw);
                     $img->delete();
                 }
+            }
+        }
+
+        // Remove images by index across ALL product images (ordered by sort then id)
+        if (array_key_exists('remove_image', $data) && is_array($data['remove_image'])) {
+            $indices = collect($data['remove_image'])
+                ->keys()
+                ->merge(collect($data['remove_image'])->values())
+                ->map(fn($i) => (int)$i)
+                ->filter(fn($i) => $i >= 0)
+                ->unique()
+                ->sort()
+                ->values()
+                ->all();
+
+            $allImages = \App\Models\ProductImage::query()
+                ->where('product_id', $product->id)
+                ->orderBy('sort')
+                ->orderBy('id')
+                ->get();
+
+            $invalid = [];
+            foreach ($indices as $idx) {
+                if (!isset($allImages[$idx])) {
+                    $invalid[] = $idx;
+                    continue;
+                }
+                $img = $allImages[$idx];
+                $raw = $img->getOriginal('path');
+                if ($raw) Storage::disk('local')->delete($raw);
+                $img->delete();
+            }
+            if (!empty($invalid)) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'remove_image' => ['Invalid image index(es): '.implode(', ', $invalid)],
+                ]);
             }
         }
 
         // Append any newly uploaded files
         if ($request->hasFile('images')) {
             Storage::disk('local')->makeDirectory('products');
+            $variantId = array_key_exists('variant_id', $data) ? $data['variant_id'] : null;
+            // Compute next sort within scope
+            $maxSort = (int) (\App\Models\ProductImage::query()
+                ->where('product_id', $product->id)
+                ->when($variantId !== null, function($q) use ($variantId){
+                    $q->where('product_variant_id', $variantId);
+                }, function($q){
+                    $q->whereNull('product_variant_id');
+                })
+                ->max('sort') ?? 0);
             foreach ($request->file('images') as $file) {
                 if (!$file->isValid()) continue;
                 $ext  = strtolower($file->getClientOriginalExtension() ?: $file->extension());
@@ -574,7 +637,9 @@ public function updateProduct(\App\Models\Product $product, Request $request)
 
                 \App\Models\ProductImage::create([
                     'product_id' => $product->id,
+                    'product_variant_id' => $variantId,
                     'path'       => $path,
+                    'sort'       => ++$maxSort,
                 ]);
             }
         }
