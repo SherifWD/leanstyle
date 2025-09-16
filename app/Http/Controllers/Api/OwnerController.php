@@ -67,6 +67,8 @@ $user = $request->user()                      // preferred (current guard)
         'delivery_settings' => ['nullable'],
         'country'           => ['nullable','string','max:255'],
         'city'              => ['nullable','string','max:255'],
+        'phone'             => ['nullable','string','max:50'],
+        'whatsapp'          => ['nullable','string','max:50'],
 
         'business_hours'                 => ['required','array','min:1'],
         'business_hours.*.weekday'       => ['required','integer','between:0,6'],
@@ -122,6 +124,8 @@ $user = $request->user()                      // preferred (current guard)
             $store->delivery_settings = $data['delivery_settings']?? null;
             $store->country           = $data['country']          ?? null;
             $store->city              = $data['city']             ?? null;
+            $store->phone             = $data['phone']            ?? null;
+            $store->whatsapp          = $data['whatsapp']         ?? null;
             $store->save();
 
             // Bulk insert business hours
@@ -169,6 +173,8 @@ $user = $request->user()                      // preferred (current guard)
         'delivery_settings' => $store->delivery_settings,
         'country'           => $store->country,
         'city'              => $store->city,
+        'phone'            => $store->phone,
+        'whatsapp'         => $store->whatsapp,
         'created_at'        => $store->created_at,
         'updated_at'        => $store->updated_at,
         'business_hours'    => $hours,
@@ -646,6 +652,8 @@ public function updateShop(Store $store, Request $request)
         'delivery_settings' => ['sometimes','nullable'], // JSON/array
         'country'           => ['sometimes','nullable','string','max:255'],
         'city'              => ['sometimes','nullable','string','max:255'],
+        'phone'             => ['sometimes','nullable','string','max:50'],
+        'whatsapp'          => ['sometimes','nullable','string','max:50'],
 
         'business_hours'                 => ['sometimes','array','min:1'],
         'business_hours.*.weekday'       => ['required_with:business_hours','integer','between:0,6'],
@@ -699,6 +707,8 @@ public function updateShop(Store $store, Request $request)
 
         // Apply fields
         $store->fill($data);
+        if (array_key_exists('phone', $data))    $store->phone = $data['phone'];
+        if (array_key_exists('whatsapp', $data)) $store->whatsapp = $data['whatsapp'];
         if ($newLogoPath) {
             $store->logo_path = $newLogoPath; // switch to new file
         } elseif ($removeLogo) {
@@ -752,6 +762,8 @@ public function updateShop(Store $store, Request $request)
         'delivery_settings' => $store->delivery_settings,
         'country'           => $store->country,
         'city'              => $store->city,
+        'phone'            => $store->phone,
+        'whatsapp'         => $store->whatsapp,
         'created_at'        => $store->created_at,
         'updated_at'        => $store->updated_at,
         'business_hours'    => $hours,
