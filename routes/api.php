@@ -112,5 +112,6 @@ Route::prefix('driver')
         // Also accept POST for file uploads when clients can't PUT multipart
         Route::post('shops/{store}', [\App\Http\Controllers\Api\OwnerController::class, 'updateShop']);
         Route::put('products/{product}', [\App\Http\Controllers\Api\OwnerController::class, 'updateProduct']);
+        Route::post('products/{product}', [\App\Http\Controllers\Api\OwnerController::class, 'updateProduct']);
 
     });
