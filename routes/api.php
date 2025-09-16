@@ -21,9 +21,9 @@ Route::prefix('auth')->group(function () {
     Route::get('me',        [AuthController::class, 'me'])->middleware('auth:api,customer');
     Route::post('update-password', [AuthController::class, 'updatePassword'])->middleware('auth:api');
     
-    Route::post('auth/forgot/request', [AuthController::class,'forgotRequest']);
-Route::post('auth/forgot/verify',  [AuthController::class,'forgotVerify']);
-Route::post('auth/forgot/reset',   [AuthController::class,'forgotReset']);
+    Route::post('forgot/request', [AuthController::class,'forgotRequest']);
+Route::post('forgot/verify',  [AuthController::class,'forgotVerify']);
+Route::post('forgot/reset',   [AuthController::class,'forgotReset']);
 
 });
 

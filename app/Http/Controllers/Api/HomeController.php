@@ -162,6 +162,11 @@ public function products(Request $request)
     $q->when($request->filled('text'), function ($x) use ($request) {
     return $x->where('name', 'like', '%' . $request->text . '%');
 });
+if($request->filled('offer') && $request->offer == 1){
+    $q->when($request->filled('offer'), function ($x) use ($request) {
+    return $x->whereNotNull('discount_price');
+});
+}
 
 
     // Optional but recommended: sort by effective price too

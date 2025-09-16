@@ -179,12 +179,15 @@ $user = $request->user()                      // preferred (current guard)
  * Generate a unique slug with ONE DB call by scanning existing siblings.
  * - Accepts soft-deleted rows too to avoid collisions when restored.
  */
-private function uniqueSlug(string $base): string
+private function uniqueSlug(string $base, ?int $ignoreId = null): string
 {
     $base = Str::slug($base) ?: Str::random(8);
 
     // Fetch all slugs that start with $base or $base-<number>
     $existing = Store::withTrashed()
+        ->when($ignoreId !== null, function($q) use ($ignoreId) {
+            $q->where('id','<>',$ignoreId);
+        })
         ->where(function($q) use ($base) {
             $q->where('slug', $base)
               ->orWhere('slug', 'like', $base.'-%');

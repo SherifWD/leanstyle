@@ -20,7 +20,7 @@ public function show(Product $product, Request $request)
     abort_if(!$product->is_active, 404);
 
     $product->load([
-        'store:id,name,slug,logo_path,address',
+        'store',
         'images:id,product_id,product_variant_id,path,sort',
         'variants:id,product_id,price,discount_price,stock,color_id,size_id',
         'variants.color:id,name,code',
@@ -80,15 +80,9 @@ public function show(Product $product, Request $request)
             ->where('store_id', $product->store_id)
             ->where('id', '!=', $product->id)
             ->latest('id')
-            ->with('images')
+            ->with(['images','category','brand','variants'])
             ->take(12)
-            ->get()
-            ->map(fn($p) => [
-                'id'          => $p->id,
-                'name'        => $p->name,
-                'image'       => optional($p->images->sortBy('sort')->first())->path,
-                'final_price' => (float)($p->discount_price ?? $p->price),
-            ]);
+            ->get();
 
         return $this->returnData('related_products', $products, "Related products");
     }

@@ -249,7 +249,8 @@ public function login(Request $request)
     public function updatePassword(Request $request)
     {
         $user = $request->user('api');
-
+if(!$user)
+    $user = $request->user('customer');
         $data = $request->validate([
             'current_password' => ['required','string'],
             'new_password'     => ['required','string','min:8'],

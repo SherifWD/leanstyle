@@ -16,9 +16,9 @@ public function variant()       { return $this->belongsTo(ProductVariant::class,
         return ($val !== null) ? asset('/'.$val) : "";
 
     }
-//  public function getPathAttribute($val)
-//     {
-//         return ($val !== null) ? asset('/'.$val) : "";
+ public function getPathAttribute($val)
+    {
+        return ($val !== null) ? asset('/'.$val) : "";
 
-//     }
+    }
 }
