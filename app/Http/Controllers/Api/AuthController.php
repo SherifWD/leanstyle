@@ -12,6 +12,7 @@ use Tymon\JWTAuth\Facades\JWTAuth;
 use Tymon\JWTAuth\Exceptions\JWTException;
 use App\Traits\backendTraits;
 use App\Traits\HelpersTrait;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\RateLimiter;
 class AuthController extends Controller
@@ -248,9 +249,15 @@ public function login(Request $request)
      */
     public function updatePassword(Request $request)
     {
-        $user = $request->user('api');
-if(!$user)
-    $user = $request->user('customer');
+if(Auth::guard('customer')->user()){
+    $user = Customer::find(Auth::guard('customer')->user()->id);
+}
+elseif(Auth::guard('api')->user()){
+            $user = Customer::find(Auth::guard('api')->user()->id);
+
+
+}
+
         $data = $request->validate([
             'current_password' => ['required','string'],
             'new_password'     => ['required','string','min:8'],
