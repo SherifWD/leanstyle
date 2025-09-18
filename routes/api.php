@@ -21,9 +21,10 @@ Route::prefix('auth')->group(function () {
     Route::get('me',        [AuthController::class, 'me'])->middleware('auth:api,customer');
     Route::post('update-password', [AuthController::class, 'updatePassword'])->middleware('auth:api,customer');
     
-    Route::post('forgot/request', [AuthController::class,'forgotRequest']);
+Route::post('forgot/request', [AuthController::class,'forgotRequest']);
 Route::post('forgot/verify',  [AuthController::class,'forgotVerify']);
 Route::post('forgot/reset',   [AuthController::class,'forgotReset']);
+Route::post('update-profile', [AuthController::class, 'updateProfile'])->middleware('auth:api,customer');
 
 });
 
@@ -31,6 +32,8 @@ Route::post('forgot/reset',   [AuthController::class,'forgotReset']);
 Route::get('home', [\App\Http\Controllers\Api\HomeController::class, 'index']);
 Route::get('products', [\App\Http\Controllers\Api\HomeController::class, 'products']);
 Route::get('stores',   [\App\Http\Controllers\Api\HomeController::class, 'stores']);
+Route::get('banners',  [\App\Http\Controllers\Api\HomeController::class, 'banners']);
+Route::get('offers',   [\App\Http\Controllers\Api\HomeController::class, 'offers']);
 
 // Product Details
 Route::get('product/{product}',        [ProductController::class, 'show']);

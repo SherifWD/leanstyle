@@ -86,6 +86,63 @@ class HomeController extends Controller
     }
 
     /**
+     * GET /api/banners
+     * Query: category_id?, position?
+     */
+    public function banners(Request $request)
+    {
+        $data = $request->validate([
+            'category_id' => ['sometimes','nullable','exists:categories,id'],
+            'position'    => ['sometimes','nullable','string','max:60'],
+            'limit'       => ['sometimes','integer','between:1,50'],
+        ]);
+
+        $now = now();
+        $q = \App\Models\Banner::query()
+            ->where('is_active', true)
+            ->when(array_key_exists('category_id',$data), fn($x) =>
+                $x->where('category_id', $data['category_id']))
+            ->when(!empty($data['position']), fn($x) => $x->where('position', $data['position']))
+            ->where(function($x) use ($now) {
+                $x->whereNull('starts_at')->orWhere('starts_at','<=',$now);
+            })
+            ->where(function($x) use ($now) {
+                $x->whereNull('ends_at')->orWhere('ends_at','>=',$now);
+            })
+            ->orderBy('sort')
+            ->orderBy('id');
+
+        $banners = $q->take($request->integer('limit', 20))->get();
+
+        return $this->returnData('banners', $banners, 'Banners');
+    }
+
+    /**
+     * GET /api/offers
+     * Query: category_id?, per_page?
+     */
+    public function offers(Request $request)
+    {
+        $data = $request->validate([
+            'category_id' => ['sometimes','nullable','exists:categories,id'],
+            'per_page'    => ['sometimes','integer','between:1,100'],
+        ]);
+
+        $q = Product::query()
+            ->where('is_active', true)
+            ->whereNotNull('discount_price')
+            ->where('discount_price','>',0)
+            ->when(array_key_exists('category_id',$data), fn($x) => $x->where('category_id', $data['category_id']))
+            ->with('images')
+            ->latest('id');
+
+        $products = $q->paginate($request->integer('per_page', 16))
+            ->through(fn($p) => $this->productCard($p));
+
+        return $this->returnData('products', $products, 'Offers');
+    }
+
+    /**
      * GET /api/products
      */
     

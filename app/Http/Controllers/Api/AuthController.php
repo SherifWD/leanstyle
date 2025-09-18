@@ -310,6 +310,44 @@ elseif(Auth::guard('api')->user()){
         return $this->returnSuccessMessage('Password updated successfully');
     }
 
+    /**
+     * POST /api/auth/update-profile
+     * Updates current user's profile for either 'api' or 'customer' guard
+     */
+    public function updateProfile(Request $request)
+    {
+        $user = $request->user('api') ?: $request->user('customer');
+        if (!$user) return $this->returnError(401, 'Unauthenticated');
+
+        $isCustomer = $request->user('customer') !== null;
+
+        $rules = [
+            'name'  => ['sometimes','nullable','string','max:190'],
+            'email' => ['sometimes','nullable','email','max:190'],
+            'phone' => ['sometimes','nullable','string','max:30', new \App\Rules\UniquePhoneAcrossAccounts(
+                $isCustomer ? null : $user->id,
+                $isCustomer ? $user->id : null
+            )],
+        ];
+        // Unique email per table (not cross-table)
+        if ($isCustomer) {
+            $rules['email'][] = \Illuminate\Validation\Rule::unique('customers','email')->ignore($user->id);
+        } else {
+            $rules['email'][] = \Illuminate\Validation\Rule::unique('users','email')->ignore($user->id);
+        }
+
+        $data = $request->validate($rules);
+
+        foreach (['name','email','phone'] as $f) {
+            if (array_key_exists($f, $data)) {
+                $user->{$f} = $data[$f];
+            }
+        }
+        $user->save();
+
+        return $this->returnData('user', $isCustomer ? $this->customerPayload($user) : $this->userPayload($user), 'Profile updated');
+    }
+
     private function userPayload(?User $user): array
     {
         if (!$user) return [];
