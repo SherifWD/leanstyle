@@ -46,21 +46,40 @@ class DriverController extends Controller
     public function orders(Request $request)
     {
         $driverId = $request->user('api')->id;
-        $status   = $request->get('status', 'active');
+        $status   = strtolower((string) $request->get('status', 'active'));
+
+        // Map common aliases
+        $aliases = [
+            'current'   => 'active',
+            'assigned'  => 'pending',
+            'inprogress'=> 'active',
+            'in_progress'=> 'active',
+            'done'      => 'delivered',
+            'completed' => 'delivered',
+            'canceled'  => 'cancelled', // US spelling
+        ];
+        $status = $aliases[$status] ?? $status;
 
         $q = Order::query()
             ->with(['store:id,name,logo_path', 'customer:id,name,phone'])
             ->whereHas('assignment', fn($a) => $a->where('driver_id', $driverId));
 
         if ($status === 'pending') {
-            $q->whereHas('assignment', fn($a) => $a->whereNull('accepted_at')->whereNull('rejected_at'));
+            // Assigned but not accepted/rejected yet
+            $q->whereHas('assignment', fn($a) => $a->whereNull('accepted_at')->whereNull('rejected_at'))
+              ->whereNotIn('status', ['delivered','cancelled','rejected']);
         } elseif ($status === 'active') {
+            // Accepted, not completed/cancelled/rejected
             $q->whereNotIn('status', ['delivered','cancelled','rejected'])
               ->whereHas('assignment', fn($a) => $a->whereNotNull('accepted_at')->whereNull('completed_at'));
         } elseif ($status === 'history') {
+            // Delivered OR Cancelled OR Rejected
             $q->whereIn('status', ['delivered','cancelled','rejected']);
-        } else {
+        } elseif (in_array($status, ['delivered','cancelled','rejected'], true)) {
             $q->where('status', $status);
+        } else {
+            // Fallback to latest assigned orders
+            $q->latest('id');
         }
 
         $orders = $q->latest('id')->paginate($request->integer('per_page', 15))

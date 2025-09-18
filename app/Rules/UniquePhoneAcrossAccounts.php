@@ -2,11 +2,11 @@
 
 namespace App\Rules;
 
-use Illuminate\Validation\Rule;
+use Illuminate\Contracts\Validation\Rule as RuleContract;
 use App\Models\User;
 use App\Models\Customer;
 
-class UniquePhoneAcrossAccounts implements Rule
+class UniquePhoneAcrossAccounts implements RuleContract
 {
     protected $ignoreUserId;
     protected $ignoreCustomerId;
