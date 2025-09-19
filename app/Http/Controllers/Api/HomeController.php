@@ -20,6 +20,21 @@ class HomeController extends Controller
     {
         $limit = (int) $request->get('limit', 10);
 
+        // Active banners for the home page
+        $now = now();
+        $banners = Banner::query()
+            ->where('is_active', true)
+            ->where(function ($q) use ($now) {
+                $q->whereNull('starts_at')->orWhere('starts_at', '<=', $now);
+            })
+            ->where(function ($q) use ($now) {
+                $q->whereNull('ends_at')->orWhere('ends_at', '>=', $now);
+            })
+            ->orderBy('sort')
+            ->orderBy('id')
+            ->with('category:id,name,slug')
+            ->get();
+
         // Top-level categories
         $categories = Category::query()
             ->whereNull('parent_id')
@@ -75,6 +90,7 @@ class HomeController extends Controller
         }
 
         return $this->returnData('data', [
+            'banners'    => $banners,
             'categories' => $categories,
             'stores'     => $stores,
             'sections'   => [
@@ -126,20 +142,50 @@ class HomeController extends Controller
         $data = $request->validate([
             'category_id' => ['sometimes','nullable','exists:categories,id'],
             'per_page'    => ['sometimes','integer','between:1,100'],
+            'products_limit' => ['sometimes','integer','between:1,50'],
         ]);
 
-        $q = Product::query()
-            ->where('is_active', true)
-            ->whereNotNull('discount_price')
-            ->where('discount_price','>',0)
-            ->when(array_key_exists('category_id',$data), fn($x) => $x->where('category_id', $data['category_id']))
-            ->with('images')
-            ->latest('id');
+        $productsLimit = $request->integer('products_limit', 12);
 
-        $products = $q->paginate($request->integer('per_page', 16))
-            ->through(fn($p) => $this->productCard($p));
+        $offersScope = function ($query) {
+            $query->where('is_active', true)
+                ->whereNotNull('discount_price')
+                ->where('discount_price', '>', 0);
+        };
 
-        return $this->returnData('products', $products, 'Offers');
+        $categoriesQuery = Category::query()
+            ->whereHas('products', $offersScope)
+            ->with(['products' => function ($query) use ($offersScope, $productsLimit) {
+                $offersScope($query);
+                $query->with('images')
+                    ->latest('id');
+
+                if ($productsLimit) {
+                    $query->take($productsLimit);
+                }
+            }])
+            ->orderBy('name');
+
+        if (array_key_exists('category_id', $data) && $data['category_id']) {
+            $categoriesQuery->whereKey($data['category_id']);
+        }
+
+        $categories = $categoriesQuery
+            ->paginate($request->integer('per_page', 10));
+
+        $categories->getCollection()->transform(function ($category) {
+            return [
+                'id'       => $category->id,
+                'name'     => $category->name,
+                'slug'     => $category->slug,
+                'store_id' => $category->store_id,
+                'products' => $category->products
+                    ->map(fn($p) => $this->productCard($p))
+                    ->values(),
+            ];
+        });
+
+        return $this->returnData('categories', $categories, 'Offers');
     }
 
     /**

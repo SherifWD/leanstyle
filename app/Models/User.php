@@ -70,6 +70,7 @@ class User extends Authenticatable implements FilamentUser, JWTSubject
 
     /** -------- Relationships -------- */
     public function ownedStore()        { return $this->hasOne(Store::class, 'owner_id'); } // shop owner
+    public function ownedStores()       { return $this->hasMany(Store::class, 'owner_id'); }
     public function store()             { return $this->belongsTo(Store::class); }          // optional store link
     public function orderAssignments()  { return $this->hasMany(OrderAssignment::class, 'driver_id'); }
     public function assignedOrders()    { return $this->hasManyThrough(Order::class, OrderAssignment::class, 'driver_id', 'id', 'id', 'order_id'); }

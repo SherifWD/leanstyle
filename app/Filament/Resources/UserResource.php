@@ -9,13 +9,15 @@ use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Filters\TernaryFilter;
 
 class UserResource extends Resource
 {
     protected static ?string $model = User::class;
     protected static ?string $navigationGroup = 'System';
     protected static ?string $navigationIcon = 'heroicon-o-shield-check';
-    protected static bool $shouldRegisterNavigation = false; // managed from Store (Users)
+    // protected static bool $shouldRegisterNavigation = false; // managed from Store (Users)
 
     public static function form(Form $form): Form
     {
@@ -28,16 +30,34 @@ class UserResource extends Resource
                 Forms\Components\TextInput::make('email')
                     ->email()
                     ->required()
+                    ->unique(ignoreRecord: true)
                     ->maxLength(255),
 
-                Forms\Components\TextInput::make('role')
-                    ->required(),
+                Forms\Components\Select::make('role')
+                    ->label('Role')
+                    ->options([
+                        'admin'        => 'Admin',
+                        'shop_owner'   => 'Shop Owner',
+                        'delivery_boy' => 'Delivery Boy',
+                    ])
+                    ->required()
+                    ->reactive()
+                    ->afterStateUpdated(function ($state, callable $set) {
+                        if ($state !== 'delivery_boy') {
+                            $set('store_id', null);
+                            $set('is_available', false);
+                        }
+                    })
+                    ->default('shop_owner'),
 
                 Forms\Components\DateTimePicker::make('email_verified_at'),
 
                 Forms\Components\TextInput::make('password')
                     ->password()
-                    ->required()
+                    ->revealable()
+                    ->dehydrateStateUsing(fn($state) => filled($state) ? $state : null)
+                    ->dehydrated(fn($state) => filled($state))
+                    ->required(fn(string $context) => $context === 'create')
                     ->maxLength(255),
 
                 Forms\Components\TextInput::make('phone')
@@ -46,12 +66,15 @@ class UserResource extends Resource
                     ->default(null),
 
                 Forms\Components\Toggle::make('is_blocked')
-                    ->required(),
+                    ->label('Blocked')
+                    ->default(false),
 
                 Forms\Components\DateTimePicker::make('blocked_at'),
 
                 Forms\Components\Toggle::make('is_available')
-                    ->required(),
+                    ->label('Available for Delivery')
+                    ->default(false)
+                    ->visible(fn(callable $get) => $get('role') === 'delivery_boy'),
 
                 // Store relation
                 Forms\Components\Select::make('store_id')
@@ -59,7 +82,9 @@ class UserResource extends Resource
                     ->relationship('store', 'name')
                     ->searchable()
                     ->preload()
-                    ->default(null),
+                    ->default(null)
+                    ->hidden(fn(callable $get) => $get('role') !== 'delivery_boy')
+                    ->required(fn(callable $get) => $get('role') === 'delivery_boy'),
             ]);
     }
 
@@ -109,7 +134,19 @@ class UserResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                //
+                SelectFilter::make('role')
+                    ->options([
+                        'admin' => 'Admin',
+                        'shop_owner' => 'Shop Owner',
+                        'delivery_boy' => 'Delivery Boy',
+                    ]),
+                TernaryFilter::make('is_blocked')
+                    ->label('Blocked'),
+                TernaryFilter::make('is_available')
+                    ->label('Available for Delivery'),
+                SelectFilter::make('store_id')
+                    ->label('Store')
+                    ->relationship('store', 'name'),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
@@ -124,7 +161,8 @@ class UserResource extends Resource
     public static function getRelations(): array
     {
         return [
-            //
+            UserResource\RelationManagers\OwnedStoresRelationManager::class,
+            UserResource\RelationManagers\ShopRelationManager::class,
         ];
     }
 

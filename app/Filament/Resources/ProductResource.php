@@ -11,6 +11,9 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Filament\Tables\Filters\Filter;
+use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Filters\TernaryFilter;
 
 class ProductResource extends Resource
 {
@@ -141,7 +144,22 @@ class ProductResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                //
+                SelectFilter::make('store_id')
+                    ->relationship('store', 'name')
+                    ->label('Store'),
+                SelectFilter::make('category_id')
+                    ->relationship('category', 'name')
+                    ->label('Category'),
+                SelectFilter::make('brand_id')
+                    ->relationship('brand', 'name')
+                    ->label('Brand'),
+                TernaryFilter::make('is_active')
+                    ->label('Active'),
+                Filter::make('has_discount')
+                    ->label('Has Discount')
+                    ->query(fn (Builder $query) => $query
+                        ->whereNotNull('discount_price')
+                        ->where('discount_price', '>', 0)),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),

@@ -9,6 +9,9 @@ use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Filament\Tables\Filters\Filter;
+use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Filters\TernaryFilter;
 
 class OrderResource extends Resource
 {
@@ -182,7 +185,29 @@ class OrderResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                //
+                SelectFilter::make('store_id')
+                    ->label('Store')
+                    ->relationship('store', 'name'),
+                SelectFilter::make('status')
+                    ->options(fn() => Order::query()
+                        ->select('status')
+                        ->distinct()
+                        ->pluck('status', 'status')
+                        ->filter()
+                        ->toArray()),
+                SelectFilter::make('payment_method')
+                    ->label('Payment Method')
+                    ->options(fn() => Order::query()
+                        ->select('payment_method')
+                        ->distinct()
+                        ->pluck('payment_method', 'payment_method')
+                        ->filter()
+                        ->toArray()),
+                TernaryFilter::make('is_paid')
+                    ->label('Paid'),
+                Filter::make('created_today')
+                    ->label('Created Today')
+                    ->query(fn($query) => $query->whereDate('created_at', today())),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),

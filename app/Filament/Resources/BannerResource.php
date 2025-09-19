@@ -5,10 +5,13 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\BannerResource\Pages;
 use App\Models\Banner;
 use Filament\Forms;
+use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Filters\TernaryFilter;
 use Illuminate\Support\Str;
 
 class BannerResource extends Resource
@@ -29,10 +32,18 @@ class BannerResource extends Resource
                 ->directory('banners')
                 ->visibility('public')
                 ->imageEditor()
-                ->afterStateHydrated(function ($component, $state, $record) {
-                    if ($record) {
-                        $component->state($record->getRawOriginal('image_path'));
+                ->afterStateHydrated(function (FileUpload $component, $state, $record) {
+                    if (! $record) {
+                        return;
                     }
+
+                    $storedPath = $record->getRawOriginal('image_path');
+
+                    if (blank($storedPath)) {
+                        return;
+                    }
+
+                    $component->state([Str::uuid()->toString() => $storedPath]);
                 })
                 ->getUploadedFileNameForStorageUsing(function ($file) {
                     $ext = strtolower($file->getClientOriginalExtension() ?: $file->extension());
@@ -69,7 +80,19 @@ class BannerResource extends Resource
             Tables\Columns\TextColumn::make('position'),
             Tables\Columns\IconColumn::make('is_active')->boolean(),
             Tables\Columns\TextColumn::make('sort')->numeric()->sortable(),
-        ])->filters([])
+        ])->filters([
+            SelectFilter::make('position')
+                ->options([
+                    'home' => 'Home',
+                    'category' => 'Category',
+                    'app_top' => 'App Top',
+                ]),
+            SelectFilter::make('category_id')
+                ->relationship('category', 'name')
+                ->label('Category'),
+            TernaryFilter::make('is_active')
+                ->label('Active'),
+        ])
           ->actions([
             Tables\Actions\EditAction::make(),
           ])->bulkActions([

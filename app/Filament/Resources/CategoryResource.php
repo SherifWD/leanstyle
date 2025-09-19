@@ -12,13 +12,15 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
+use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Filters\TrashedFilter;
 
 class CategoryResource extends Resource
 {
     protected static ?string $model = Category::class;
     protected static ?string $navigationGroup = 'Catalog';
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-group';
-    protected static bool $shouldRegisterNavigation = false; // managed from Store
+    // protected static bool $shouldRegisterNavigation = false; // managed from Store
 
     public static function form(Form $form): Form
     {
@@ -79,7 +81,13 @@ class CategoryResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                //
+                SelectFilter::make('store_id')
+                    ->relationship('store', 'name')
+                    ->label('Store'),
+                SelectFilter::make('parent_id')
+                    ->relationship('parent', 'name')
+                    ->label('Parent'),
+                TrashedFilter::make(),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
