@@ -43,12 +43,7 @@ class StoreResource extends Resource
                     ->disk('local')
                     ->directory('store')
                     ->visibility('public')
-                    ->imageEditor()
-                    ->afterStateHydrated(function ($component, $state, $record) {
-                        if ($record) {
-                            $component->state($record->getRawOriginal('logo_path'));
-                        }
-                    }),
+                    ->imageEditor(),
 
                 Forms\Components\TextInput::make('brand_color')
                     ->maxLength(255)
@@ -91,7 +86,7 @@ class StoreResource extends Resource
             ->columns([
                 Tables\Columns\ImageColumn::make('logo_path')
                     ->label('Logo')
-                    ->getStateUsing(fn($record) => $record->logo_path)
+                    ->getStateUsing(fn($record) => $record->logo_path ? asset($record->logo_path) : null)
                     ->square(),
                 Tables\Columns\TextColumn::make('owner.name')
                     ->label('Owner')

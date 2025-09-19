@@ -48,10 +48,4 @@ public function setLogoPathAttribute($val)
 {
     $this->attributes['logo_path'] = $val;
 }
-
- public function getLogoPathAttribute($val)
-    {
-        return ($val !== null) ? asset('/'.$val) : "";
-
-    }
 }
