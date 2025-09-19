@@ -34,21 +34,6 @@ class CustomerResource extends Resource
                     ->email()
                     ->maxLength(255)
                     ->default(null),
-                Forms\Components\TextInput::make('address')
-                    ->maxLength(255)
-                    ->default(null),
-                Forms\Components\TextInput::make('country')
-                    ->maxLength(255)
-                    ->default(null),
-                Forms\Components\TextInput::make('city')
-                    ->maxLength(255)
-                    ->default(null),
-                Forms\Components\TextInput::make('lat')
-                    ->numeric()
-                    ->default(null),
-                Forms\Components\TextInput::make('lng')
-                    ->numeric()
-                    ->default(null),
             ]);
     }
 
@@ -62,18 +47,6 @@ class CustomerResource extends Resource
                     ->searchable(),
                 Tables\Columns\TextColumn::make('email')
                     ->searchable(),
-                Tables\Columns\TextColumn::make('address')
-                    ->searchable(),
-                Tables\Columns\TextColumn::make('country')
-                    ->searchable(),
-                Tables\Columns\TextColumn::make('city')
-                    ->searchable(),
-                Tables\Columns\TextColumn::make('lat')
-                    ->numeric()
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('lng')
-                    ->numeric()
-                    ->sortable(),
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
                     ->sortable()
@@ -99,7 +72,8 @@ class CustomerResource extends Resource
     public static function getRelations(): array
     {
         return [
-            //
+            CustomerResource\RelationManagers\AddressesRelationManager::class,
+            CustomerResource\RelationManagers\OrdersRelationManager::class,
         ];
     }
 
