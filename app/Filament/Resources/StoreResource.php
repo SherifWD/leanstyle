@@ -160,6 +160,11 @@ class StoreResource extends Resource
     {
         return [
             StoreResource\RelationManagers\BusinessHoursRelationManager::class,
+            StoreResource\RelationManagers\ProductsRelationManager::class,
+            StoreResource\RelationManagers\CategoriesRelationManager::class,
+            StoreResource\RelationManagers\BrandsRelationManager::class,
+            StoreResource\RelationManagers\OrdersRelationManager::class,
+            StoreResource\RelationManagers\UsersRelationManager::class,
         ];
     }
 
