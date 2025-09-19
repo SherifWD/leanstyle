@@ -38,12 +38,6 @@ class ImagesRelationManager extends RelationManager
                 ->visibility('public')
                 ->imageEditor()
                 ->required()
-                ->afterStateHydrated(function ($component, $state, $record) {
-                    // Ensure state is the raw path (not accessor URL)
-                    if ($record) {
-                        $component->state($record->getRawOriginal('path'));
-                    }
-                })
                 ->getUploadedFileNameForStorageUsing(function ($file) {
                     $ext = strtolower($file->getClientOriginalExtension() ?: $file->extension());
                     return Str::slug(pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)) . '-' . Str::random(8) . '.' . $ext;
@@ -61,7 +55,7 @@ class ImagesRelationManager extends RelationManager
             ->columns([
                 Tables\Columns\ImageColumn::make('path')
                     ->label('Image')
-                    ->getStateUsing(fn($record) => $record->path)
+                    ->getStateUsing(fn($record) => $record->path ? asset($record->path) : null)
                     ->square(),
                 Tables\Columns\TextColumn::make('variant_id')
                     ->label('Variant')
