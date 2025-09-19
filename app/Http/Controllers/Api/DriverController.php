@@ -68,6 +68,9 @@ class DriverController extends Controller
             // Assigned but not accepted/rejected yet
             $q->whereHas('assignment', fn($a) => $a->whereNull('accepted_at')->whereNull('rejected_at'))
               ->whereNotIn('status', ['delivered','cancelled','rejected']);
+        } elseif ($status === 'ready') {
+            // Orders ready for pickup (assigned or already picked)
+            $q->whereIn('status', ['assigned','picked']);
         } elseif ($status === 'active') {
             // Accepted, not completed/cancelled/rejected
             $q->whereNotIn('status', ['delivered','cancelled','rejected'])

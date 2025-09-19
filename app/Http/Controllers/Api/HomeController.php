@@ -35,9 +35,19 @@ class HomeController extends Controller
             ->with('category:id,name,slug')
             ->get();
 
-        // Top-level categories
+        $offerScope = function ($query) {
+            $query->where('is_active', true)
+                ->whereNotNull('discount_price')
+                ->where('discount_price', '>', 0);
+        };
+
+        // Top-level categories limited to those with discounted products (direct or via children)
         $categories = Category::query()
             ->whereNull('parent_id')
+            ->where(function ($q) use ($offerScope) {
+                $q->whereHas('products', $offerScope)
+                  ->orWhereHas('children.products', $offerScope);
+            })
             ->orderBy('name')
             ->take(12)
             ->get(['id','name','slug','image']);
