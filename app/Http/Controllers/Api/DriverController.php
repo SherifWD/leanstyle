@@ -56,12 +56,12 @@ class DriverController extends Controller
             'in_progress'=> 'active',
             'done'      => 'delivered',
             'completed' => 'delivered',
-            'canceled'  => 'cancelled', // US spelling
+            'canceled'  => 'cancelled',
         ];
         $status = $aliases[$status] ?? $status;
 
         $q = Order::query()
-            ->with(['store:id,name,logo_path', 'customer:id,name,phone'])
+            ->with(['store:id,name,logo_path,address,lat,lng', 'customer:id,name,phone'])
             ->whereHas('assignment', fn($a) => $a->where('driver_id', $driverId));
 
         if ($status === 'pending') {
