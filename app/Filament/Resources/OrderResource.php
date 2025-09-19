@@ -199,6 +199,7 @@ class OrderResource extends Resource
         return [
             OrderResource\RelationManagers\ItemsRelationManager::class,
             OrderResource\RelationManagers\AssignmentsRelationManager::class,
+            OrderResource\RelationManagers\StatusHistoriesRelationManager::class,
         ];
     }
 

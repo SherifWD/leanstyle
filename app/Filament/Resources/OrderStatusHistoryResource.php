@@ -18,6 +18,17 @@ class OrderStatusHistoryResource extends Resource
 
     public static function form(Form $form): Form
     {
+        $statuses = [
+            'pending' => 'pending',
+            'preparing' => 'preparing',
+            'ready' => 'ready',
+            'assigned' => 'assigned',
+            'picked' => 'picked',
+            'out_for_delivery' => 'out_for_delivery',
+            'delivered' => 'delivered',
+            'rejected' => 'rejected',
+            'cancelled' => 'cancelled',
+        ];
         return $form
             ->schema([
                 // Order relation
@@ -28,10 +39,14 @@ class OrderStatusHistoryResource extends Resource
                     ->preload()
                     ->required(),
 
-                Forms\Components\TextInput::make('from_status'),
+                Forms\Components\Select::make('from_status')
+                    ->options($statuses)
+                    ->searchable(),
 
-                Forms\Components\TextInput::make('to_status')
-                    ->required(),
+                Forms\Components\Select::make('to_status')
+                    ->options($statuses)
+                    ->required()
+                    ->searchable(),
 
                 // Changed By relation (usually User or Admin)
                 Forms\Components\Select::make('changed_by')
@@ -55,9 +70,9 @@ class OrderStatusHistoryResource extends Resource
                     ->sortable()
                     ->searchable(),
 
-                Tables\Columns\TextColumn::make('from_status'),
+                Tables\Columns\TextColumn::make('from_status')->badge(),
 
-                Tables\Columns\TextColumn::make('to_status'),
+                Tables\Columns\TextColumn::make('to_status')->badge(),
 
                 Tables\Columns\TextColumn::make('changer.name') // relation for changed_by
                     ->label('Changed By')
@@ -74,10 +89,13 @@ class OrderStatusHistoryResource extends Resource
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
-            ->filters([
-                //
-            ])
+            ->defaultSort('created_at', 'desc')
+            ->filters([])
             ->actions([
+                Tables\Actions\Action::make('open_order')
+                    ->label('Open Order')
+                    ->url(fn($record) => route('filament.admin.resources.orders.edit', ['record' => $record->order]))
+                    ->openUrlInNewTab(),
                 Tables\Actions\EditAction::make(),
             ])
             ->bulkActions([
