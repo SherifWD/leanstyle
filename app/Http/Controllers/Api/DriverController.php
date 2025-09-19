@@ -98,6 +98,11 @@ class DriverController extends Controller
                         'name'  => $o->customer?->name,
                         'phone' => $o->customer?->phone,
                     ],
+                    'ship_from'   => [
+                        'address' => $o->store?->address,
+                        'lat'     => $o->store?->lat,
+                        'lng'     => $o->store?->lng,
+                    ],
                     'ship_to'     => [
                         'address' => $o->ship_address,
                         'lat'     => $o->ship_lat,
