@@ -17,6 +17,7 @@ class CustomerAddressResource extends Resource
     protected static ?string $model = CustomerAddress::class;
     protected static ?string $navigationGroup = 'Customers';
     protected static ?string $navigationIcon = 'heroicon-o-map-pin';
+    protected static bool $shouldRegisterNavigation = false; // managed from Customer
 
     public static function form(Form $form): Form
     {

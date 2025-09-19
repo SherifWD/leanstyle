@@ -18,6 +18,7 @@ class CategoryResource extends Resource
     protected static ?string $model = Category::class;
     protected static ?string $navigationGroup = 'Catalog';
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-group';
+    protected static bool $shouldRegisterNavigation = false; // managed from Store
 
     public static function form(Form $form): Form
     {

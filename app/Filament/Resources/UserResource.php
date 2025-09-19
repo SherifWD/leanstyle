@@ -15,6 +15,7 @@ class UserResource extends Resource
     protected static ?string $model = User::class;
     protected static ?string $navigationGroup = 'System';
     protected static ?string $navigationIcon = 'heroicon-o-shield-check';
+    protected static bool $shouldRegisterNavigation = false; // managed from Store (Users)
 
     public static function form(Form $form): Form
     {

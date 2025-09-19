@@ -18,6 +18,7 @@ class BrandResource extends Resource
     protected static ?string $model = Brand::class;
     protected static ?string $navigationGroup = 'Catalog';
     protected static ?string $navigationIcon = 'heroicon-o-tag';
+    protected static bool $shouldRegisterNavigation = false; // managed from Store
 
     public static function form(Form $form): Form
     {
