@@ -31,10 +31,12 @@ return [
     'disks' => [
 
         'local' => [
-  'driver' => 'local',
-  'root' => public_path('/'),
-  'throw' => false,
- ],
+            'driver' => 'local',
+            'root' => public_path('/'),
+            'url' => env('APP_URL').'/',
+            'visibility' => 'public',
+            'throw' => false,
+        ],
 
         'public' => [
             'driver' => 'local',
