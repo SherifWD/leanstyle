@@ -16,8 +16,8 @@ use Illuminate\Database\Eloquent\SoftDeletingScope;
 class CartResource extends Resource
 {
     protected static ?string $model = Cart::class;
-
-    protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
+    protected static ?string $navigationGroup = 'Customers';
+    protected static ?string $navigationIcon = 'heroicon-o-shopping-cart';
 
     public static function form(Form $form): Form
     {
@@ -127,7 +127,7 @@ class CartResource extends Resource
     public static function getRelations(): array
     {
         return [
-            //
+            CartResource\RelationManagers\ItemsRelationManager::class,
         ];
     }
 

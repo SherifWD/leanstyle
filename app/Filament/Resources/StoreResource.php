@@ -13,8 +13,9 @@ use Filament\Tables\Table;
 class StoreResource extends Resource
 {
     protected static ?string $model = Store::class;
+    protected static ?string $navigationGroup = 'Store';
+    protected static ?string $navigationIcon = 'heroicon-o-building-storefront';
 
-    protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
 
     public static function form(Form $form): Form
     {

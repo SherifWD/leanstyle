@@ -300,7 +300,6 @@ private function uniqueSlug(string $base, ?int $ignoreId = null): string
         'variants'                 => ['nullable','array'],
         'variants.*.color_id'      => ['nullable','exists:colors,id'],
         'variants.*.size_id'       => ['nullable','exists:sizes,id'],
-        'variants.*.sku'           => ['required_with:variants','string','max:255'],
         'variants.*.price'         => ['nullable','numeric','min:0'],
         'variants.*.discount_price'=> ['nullable','numeric','min:0'],
         'variants.*.stock'         => ['nullable','integer','min:0'],

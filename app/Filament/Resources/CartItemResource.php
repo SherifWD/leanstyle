@@ -17,6 +17,7 @@ class CartItemResource extends Resource
 {
     protected static ?string $model = CartItem::class;
 
+    protected static bool $shouldRegisterNavigation = false; // managed under Cart
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
 
     public static function form(Form $form): Form

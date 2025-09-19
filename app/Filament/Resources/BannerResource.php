@@ -14,7 +14,7 @@ use Illuminate\Support\Str;
 class BannerResource extends Resource
 {
     protected static ?string $model = Banner::class;
-
+    protected static ?string $navigationGroup = 'Store';
     protected static ?string $navigationIcon = 'heroicon-o-photo';
 
     public static function form(Form $form): Form
@@ -88,4 +88,3 @@ class BannerResource extends Resource
         ];
     }
 }
-

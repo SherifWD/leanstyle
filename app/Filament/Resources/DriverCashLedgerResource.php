@@ -13,8 +13,8 @@ use Filament\Tables\Table;
 class DriverCashLedgerResource extends Resource
 {
     protected static ?string $model = DriverCashLedger::class;
-
-    protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
+    protected static ?string $navigationGroup = 'Drivers';
+    protected static ?string $navigationIcon = 'heroicon-o-banknotes';
 
     public static function form(Form $form): Form
     {

@@ -29,10 +29,6 @@ class VariantsRelationManager extends RelationManager
                 ->preload()
                 ->nullable(),
 
-            Forms\Components\TextInput::make('sku')
-                ->maxLength(255)
-                ->nullable(),
-
             Forms\Components\TextInput::make('price')
                 ->numeric()
                 ->nullable(),
@@ -54,7 +50,6 @@ class VariantsRelationManager extends RelationManager
     {
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('sku')->label('SKU')->searchable(),
                 Tables\Columns\TextColumn::make('color.name')->label('Color'),
                 Tables\Columns\TextColumn::make('size.name')->label('Size'),
                 Tables\Columns\TextColumn::make('price')->money(),
@@ -76,4 +71,3 @@ class VariantsRelationManager extends RelationManager
             ]);
     }
 }
-

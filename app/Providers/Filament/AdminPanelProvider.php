@@ -31,7 +31,14 @@ class AdminPanelProvider extends PanelProvider
         ->discoverResources(in: app_path('Filament/Resources'), for: 'App\\Filament\\Resources')
         ->discoverPages(in: app_path('Filament/Pages'), for: 'App\\Filament\\Pages')
         ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\\Filament\\Widgets')
-        ->colors(['primary' => \Filament\Support\Colors\Color::Hex('#111827')]) // optional
+        ->colors([
+            'primary' => Color::hex('#111827'),
+            'gray'    => Color::Slate,
+            'success' => Color::Green,
+            'info'    => Color::Blue,
+            'warning' => Color::Amber,
+            'danger'  => Color::Rose,
+        ])
             ->navigationGroups([
             'Store',
             'Catalog',

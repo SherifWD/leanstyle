@@ -18,7 +18,14 @@ class ImagesRelationManager extends RelationManager
         return $form->schema([
             Forms\Components\Select::make('product_variant_id')
                 ->label('Variant')
-                ->relationship('variant', 'sku')
+                ->relationship('variant', 'id')
+                ->getOptionLabelFromRecordUsing(function ($record) {
+                    $color = optional($record->color)->name;
+                    $size  = optional($record->size)->name;
+                    $parts = array_filter([$color, $size]);
+                    $label = implode(' / ', $parts);
+                    return $label ? $label : ('Variant #' . $record->id);
+                })
                 ->searchable()
                 ->preload()
                 ->nullable(),
@@ -56,8 +63,17 @@ class ImagesRelationManager extends RelationManager
                     ->label('Image')
                     ->getStateUsing(fn($record) => $record->path)
                     ->square(),
-                Tables\Columns\TextColumn::make('variant.sku')
-                    ->label('Variant'),
+                Tables\Columns\TextColumn::make('variant_id')
+                    ->label('Variant')
+                    ->getStateUsing(function ($record) {
+                        $v = $record->variant;
+                        if (!$v) return null;
+                        $color = optional($v->color)->name;
+                        $size  = optional($v->size)->name;
+                        $parts = array_filter([$color, $size]);
+                        $label = implode(' / ', $parts);
+                        return $label ? $label : ('Variant #' . $v->id);
+                    }),
                 Tables\Columns\TextColumn::make('sort')->sortable(),
                 Tables\Columns\TextColumn::make('created_at')->dateTime()->toggleable(true),
             ])
@@ -75,4 +91,3 @@ class ImagesRelationManager extends RelationManager
             ]);
     }
 }
-
