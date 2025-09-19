@@ -14,6 +14,8 @@ class ProductImageResource extends Resource
 {
     protected static ?string $model = ProductImage::class;
 
+    protected static bool $shouldRegisterNavigation = false; // managed under Product
+
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
 
     public static function form(Form $form): Form

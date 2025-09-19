@@ -14,6 +14,7 @@ class OrderAssignmentResource extends Resource
 {
     protected static ?string $model = OrderAssignment::class;
 
+    protected static bool $shouldRegisterNavigation = false; // managed under Order
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
 
     public static function form(Form $form): Form

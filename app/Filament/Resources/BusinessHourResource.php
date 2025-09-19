@@ -17,6 +17,7 @@ class BusinessHourResource extends Resource
 {
     protected static ?string $model = BusinessHour::class;
 
+    protected static bool $shouldRegisterNavigation = false; // managed under Store
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
 
     public static function form(Form $form): Form

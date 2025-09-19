@@ -36,9 +36,18 @@ class StoreResource extends Resource
                     ->required()
                     ->maxLength(255),
 
-                Forms\Components\TextInput::make('logo_path')
-                    ->maxLength(255)
-                    ->default(null),
+                Forms\Components\FileUpload::make('logo_path')
+                    ->label('Logo')
+                    ->image()
+                    ->disk('local')
+                    ->directory('store')
+                    ->visibility('public')
+                    ->imageEditor()
+                    ->afterStateHydrated(function ($component, $state, $record) {
+                        if ($record) {
+                            $component->state($record->getRawOriginal('logo_path'));
+                        }
+                    }),
 
                 Forms\Components\TextInput::make('brand_color')
                     ->maxLength(255)
@@ -79,6 +88,10 @@ class StoreResource extends Resource
     {
         return $table
             ->columns([
+                Tables\Columns\ImageColumn::make('logo_path')
+                    ->label('Logo')
+                    ->getStateUsing(fn($record) => $record->logo_path)
+                    ->square(),
                 Tables\Columns\TextColumn::make('owner.name')
                     ->label('Owner')
                     ->sortable()
@@ -90,8 +103,6 @@ class StoreResource extends Resource
                 Tables\Columns\TextColumn::make('slug')
                     ->searchable(),
 
-                Tables\Columns\TextColumn::make('logo_path')
-                    ->searchable(),
 
                 Tables\Columns\TextColumn::make('brand_color')
                     ->searchable(),
@@ -147,7 +158,7 @@ class StoreResource extends Resource
     public static function getRelations(): array
     {
         return [
-            //
+            StoreResource\RelationManagers\BusinessHoursRelationManager::class,
         ];
     }
 

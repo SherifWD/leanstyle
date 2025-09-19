@@ -32,6 +32,14 @@ class CategoryResource extends Resource
                 Forms\Components\TextInput::make('slug')
                     ->required()
                     ->maxLength(255),
+                Forms\Components\FileUpload::make('image')
+                    ->label('Image')
+                    ->image()
+                    ->disk('local')
+                    ->directory('categories')
+                    ->visibility('public')
+                    ->imageEditor()
+                    ->nullable(),
                 Forms\Components\Select::make('parent_id')
                 ->relationship('parent','name')
                     ->default(null),
@@ -42,6 +50,10 @@ class CategoryResource extends Resource
     {
         return $table
             ->columns([
+                Tables\Columns\ImageColumn::make('image')
+                    ->label('Image')
+                    ->getStateUsing(fn($record) => $record->image ? asset($record->image) : null)
+                    ->square(),
                 Tables\Columns\TextColumn::make('store.name')
                     ->numeric()
                     ->sortable(),
