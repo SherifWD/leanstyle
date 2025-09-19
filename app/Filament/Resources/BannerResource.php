@@ -63,7 +63,7 @@ class BannerResource extends Resource
     public static function table(Table $table): Table
     {
         return $table->columns([
-            Tables\Columns\ImageColumn::make('image_path')->label('Image')->getStateUsing(fn($r) => $r->image_path)->square(),
+            Tables\Columns\ImageColumn::make('image_path')->label('Image')->getStateUsing(fn($record) => $record->image_path)->square(),
             Tables\Columns\TextColumn::make('title')->searchable(),
             Tables\Columns\TextColumn::make('category.name')->label('Category'),
             Tables\Columns\TextColumn::make('position'),

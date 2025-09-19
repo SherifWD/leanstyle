@@ -22,11 +22,12 @@ class OrdersRelationManager extends RelationManager
             ])
             ->headerActions([])
             ->actions([
-                Tables\Actions\ViewAction::make()->url(fn($r)=>route('filament.admin.resources.orders.edit',['record'=>$r]))->openUrlInNewTab(),
+                Tables\Actions\ViewAction::make()
+                    ->url(fn($record) => route('filament.admin.resources.orders.edit', ['record' => $record]))
+                    ->openUrlInNewTab(),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([]),
             ]);
     }
 }
-

@@ -31,7 +31,7 @@ class CategoriesRelationManager extends RelationManager
     {
         return $table
             ->columns([
-                Tables\Columns\ImageColumn::make('image')->label('Image')->getStateUsing(fn($r)=>$r->image ? asset($r->image) : null)->square(),
+                Tables\Columns\ImageColumn::make('image')->label('Image')->getStateUsing(fn($record) => $record->image ? asset($record->image) : null)->square(),
                 Tables\Columns\TextColumn::make('name')->searchable()->sortable(),
                 Tables\Columns\TextColumn::make('slug')->searchable(),
                 Tables\Columns\TextColumn::make('parent.name')->label('Parent'),
@@ -51,4 +51,3 @@ class CategoriesRelationManager extends RelationManager
             ]);
     }
 }
-
