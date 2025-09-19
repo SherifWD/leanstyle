@@ -26,7 +26,7 @@ class MetaController extends Controller
     {
         $sizes   = Size::query()->orderBy('name')->get(['id','name']);
         $brands  = Brand::query()->orderBy('name')->get(['id','name']);
-        $cats    = Category::query()->whereNull('parent_id')->orderBy('name')->get(['id','name']);
+        $cats    = Category::query()->whereNull('parent_id')->orderBy('name')->get(['id','name','image']);
         $colors  = Color::query()->orderBy('name')->get(['id','name','code']);
 
         // Available locations:
