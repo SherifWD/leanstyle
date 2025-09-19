@@ -40,7 +40,7 @@ class HomeController extends Controller
             ->whereNull('parent_id')
             ->orderBy('name')
             ->take(12)
-            ->get(['id','name','slug']);
+            ->get(['id','name','slug','image']);
 
         // Stores (filter by area if provided)
         $stores = Store::query()
