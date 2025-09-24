@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\{Size, Brand, Category, Color, Store, Product};
+use App\Models\{Size, Brand, Category, City, Color, Store, Product};
 use Illuminate\Http\Request;
 use App\Traits\backendTraits;
 use App\Traits\HelpersTrait;
@@ -61,13 +61,14 @@ class MetaController extends Controller
         if (empty($types)) {
             $types = ['mens', 'women', 'child'];
         }
-
+        $cities = City::all();
         return $this->returnData('meta', [
             'all_sizes'          => $sizes,
             'all_brands'         => $brands,
             'categories'         => $cats,
             'all_colors'         => $colors,
-            'available_locations'=> $locations,
+            'available_locations'=> $cities,
+            'available_locations_old'=> $locations,
             'types'              => $types,
         ], 'Meta data');
     }
