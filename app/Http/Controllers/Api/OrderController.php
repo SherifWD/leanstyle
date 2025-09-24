@@ -74,7 +74,8 @@ private function meCustomer(Request $request): Customer|JsonResponse
     public function noCusRejOrder(Request $request)
 {
     $customer = $this->meCustomer($request);
-
+    if(!$customer)
+        return $this->returnError(401,"You are not a customer");
     $statuses = ['rejected', 'cancelled', 'delivered'];
 
     $orders = Order::query()

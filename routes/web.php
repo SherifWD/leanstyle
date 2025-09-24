@@ -5,6 +5,9 @@ use Illuminate\Support\Facades\Route;
 Route::get('/', function () {
     return view('welcome');
 });
+Route::get('/privacy', function () {
+    return view('privacy_policy');
+});
 
 Route::get('/store/{path}', function (string $path) {
     // prevent path traversal

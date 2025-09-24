@@ -168,6 +168,7 @@ class DriverController extends Controller
             'started'         => ['picked'],
             'picked'          => ['out_for_delivery'],
             'out_for_delivery'=> ['delivered'],
+            'delivered'=> ['delivered'],
         ];
 
         if (! isset($allowed[$from]) || ! in_array($data['to_status'], $allowed[$from], true)) {
