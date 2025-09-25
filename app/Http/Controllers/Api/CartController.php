@@ -375,7 +375,7 @@ private function defaultVerifiedAddress(\App\Models\Customer $customer)
                 'product_variant_id' => $i->product_variant_id,
                 'name'               => $i->name,
                 'options'            => $i->options,
-                'max_quantity'       => ProductVariant::find($i->product_variant_id)->stock,
+                'max_quantity'       => Product::find($i->product_variant_id) ? ProductVariant::find($i->product_variant_id)->stock : 0,
                 'qty'                => (int)$i->qty,
                 'unit_price'         => (float)$i->unit_price,
                 'discount'           => (float)$i->discount,
