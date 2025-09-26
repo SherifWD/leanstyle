@@ -40,7 +40,10 @@ class OrderResource extends Resource
                     ->preload()
                     ->required(),
 
-                Forms\Components\TextInput::make('status')
+                Forms\Components\Select::make('status')
+                    ->label('Status')
+                    ->options(fn () => Order::statusOptions())
+                    ->searchable()
                     ->required(),
 
                 Forms\Components\TextInput::make('order_code')
@@ -72,9 +75,11 @@ class OrderResource extends Resource
                     ->numeric()
                     ->default(0.00),
 
-                Forms\Components\TextInput::make('payment_method')
+                Forms\Components\Select::make('payment_method')
+                    ->label('Payment Method')
+                    ->options(fn () => Order::paymentMethodOptions())
+                    ->searchable()
                     ->required()
-                    ->maxLength(255)
                     ->default('cod'),
 
                 Forms\Components\Toggle::make('is_paid')
@@ -189,20 +194,10 @@ class OrderResource extends Resource
                     ->label('Store')
                     ->relationship('store', 'name'),
                 SelectFilter::make('status')
-                    ->options(fn() => Order::query()
-                        ->select('status')
-                        ->distinct()
-                        ->pluck('status', 'status')
-                        ->filter()
-                        ->toArray()),
+                    ->options(fn () => Order::statusOptions()),
                 SelectFilter::make('payment_method')
                     ->label('Payment Method')
-                    ->options(fn() => Order::query()
-                        ->select('payment_method')
-                        ->distinct()
-                        ->pluck('payment_method', 'payment_method')
-                        ->filter()
-                        ->toArray()),
+                    ->options(fn () => Order::paymentMethodOptions()),
                 TernaryFilter::make('is_paid')
                     ->label('Paid'),
                 Filter::make('created_today')

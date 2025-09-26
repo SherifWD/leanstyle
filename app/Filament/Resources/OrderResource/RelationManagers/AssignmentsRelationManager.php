@@ -11,6 +11,7 @@ use Filament\Tables;
 use Filament\Tables\Actions\CreateAction;
 use Filament\Tables\Actions\EditAction;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
 class AssignmentsRelationManager extends RelationManager
@@ -21,7 +22,7 @@ class AssignmentsRelationManager extends RelationManager
     {
         return $form->schema([
             Forms\Components\Select::make('driver_id')
-                ->relationship('driver', 'name')
+                ->relationship('driver', 'name', fn (Builder $query) => $query->where('role', 'delivery_boy'))
                 ->searchable()
                 ->preload()
                 ->required(),
@@ -55,7 +56,8 @@ class AssignmentsRelationManager extends RelationManager
                     ->mutateFormDataUsing(fn (array $data): array => $this->prepareAssignmentPayload($data))
                     ->after(function (Model $record): void {
                         $this->ensureOrderIsAssigned($record);
-                    }),
+                    })
+                    ->visible(fn (): bool => ! $this->hasExistingAssignment()),
             ])
             ->actions([
                 EditAction::make()
@@ -125,5 +127,16 @@ class AssignmentsRelationManager extends RelationManager
     protected function getCurrentUserId(): ?int
     {
         return Filament::auth()->id() ?? auth()->id();
+    }
+
+    protected function hasExistingAssignment(): bool
+    {
+        $order = $this->getOwnerRecord();
+
+        if (! $order) {
+            return false;
+        }
+
+        return $order->assignment()->exists();
     }
 }

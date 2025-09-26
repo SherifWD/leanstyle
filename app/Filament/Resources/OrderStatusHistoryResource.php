@@ -3,6 +3,7 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\OrderStatusHistoryResource\Pages;
+use App\Models\Order;
 use App\Models\OrderStatusHistory;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -19,17 +20,6 @@ class OrderStatusHistoryResource extends Resource
 
     public static function form(Form $form): Form
     {
-        $statuses = [
-            'pending' => 'pending',
-            'preparing' => 'preparing',
-            'ready' => 'ready',
-            'assigned' => 'assigned',
-            'picked' => 'picked',
-            'out_for_delivery' => 'out_for_delivery',
-            'delivered' => 'delivered',
-            'rejected' => 'rejected',
-            'cancelled' => 'cancelled',
-        ];
         return $form
             ->schema([
                 // Order relation
@@ -41,11 +31,11 @@ class OrderStatusHistoryResource extends Resource
                     ->required(),
 
                 Forms\Components\Select::make('from_status')
-                    ->options($statuses)
+                    ->options(fn () => Order::statusOptions())
                     ->searchable(),
 
                 Forms\Components\Select::make('to_status')
-                    ->options($statuses)
+                    ->options(fn () => Order::statusOptions())
                     ->required()
                     ->searchable(),
 
