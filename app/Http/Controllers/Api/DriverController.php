@@ -108,7 +108,7 @@ class DriverController extends Controller
                         'lat'     => $o->ship_lat,
                         'lng'     => $o->ship_lng,
                     ],
-                    'assigned_at' => $o->assignment?->assigned_at?->toIso8601String(),
+                    'assigned_at' => $o->assignment?->assigned_at,
                 ];
             });
 

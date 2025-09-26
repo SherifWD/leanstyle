@@ -231,7 +231,7 @@ public function showP(Order $order, Request $request)
                 'unit_price' => (float)$i->unit_price,
                 'line_total' => (float)$i->line_total,
                 'options'    => $i->options,
-                'product' => ['variant' => $i->productVariant,'images' => $i->images]
+                'product' => ['variant' => $i->productVariant,'images' => $i->product->images]
                 
             ]),
             'store'  => $order->store,
@@ -305,7 +305,7 @@ if($request->filled('offer') && $request->offer == 1){
         $q = Store::query()->where('is_active', true);
 
         $q->when($request->filled('text'), fn($x) => $x->where('name', 'like', '%'.$request->text.'%'));
-        $q->when($request->filled('area'), fn($x) => $x->where('address', 'like', '%'.$request->area.'%'));
+        $q->when($request->filled('area'), fn($x) => $x->where('city', 'like', '%'.$request->area.'%'));
 
         $stores = $q->paginate($request->integer('per_page', 12));
 
