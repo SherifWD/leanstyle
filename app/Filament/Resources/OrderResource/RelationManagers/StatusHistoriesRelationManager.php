@@ -7,6 +7,7 @@ use Filament\Forms\Form;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class StatusHistoriesRelationManager extends RelationManager
 {
@@ -40,15 +41,28 @@ class StatusHistoriesRelationManager extends RelationManager
     public function table(Table $table): Table
     {
         return $table
+            ->modifyQueryUsing(fn (Builder $query) => $query->latest('created_at')->limit(6))
             ->columns([
-                Tables\Columns\TextColumn::make('from_status')->badge(),
-                Tables\Columns\TextColumn::make('to_status')->badge(),
-                Tables\Columns\TextColumn::make('changer.name')->label('Changed By'),
-                Tables\Columns\TextColumn::make('created_at')->dateTime()->sortable(),
+                Tables\Columns\TextColumn::make('to_status')
+                    ->label('Status')
+                    ->badge(),
+                Tables\Columns\TextColumn::make('changer.name')
+                    ->label('Changed By')
+                    ->placeholder('System'),
+                Tables\Columns\TextColumn::make('reason')
+                    ->label('Note')
+                    ->limit(60)
+                    ->toggleable(isToggledHiddenByDefault: true),
+                Tables\Columns\TextColumn::make('created_at')
+                    ->label('When')
+                    ->since()
+                    ->tooltip(fn ($record) => $record->created_at?->toDayDateTimeString()),
             ])
-            ->defaultSort('created_at','desc')
+            ->paginated(false)
+            ->emptyStateHeading('No status activity yet')
             ->headerActions([
-                Tables\Actions\CreateAction::make(),
+                Tables\Actions\CreateAction::make()
+                    ->label('Log Status Change'),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
@@ -61,4 +75,3 @@ class StatusHistoriesRelationManager extends RelationManager
             ]);
     }
 }
-
