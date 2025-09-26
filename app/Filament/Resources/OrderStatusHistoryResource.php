@@ -15,6 +15,7 @@ class OrderStatusHistoryResource extends Resource
     protected static ?string $model = OrderStatusHistory::class;
     protected static ?string $navigationGroup = 'Orders';
     protected static ?string $navigationIcon = 'heroicon-o-clock';
+    protected static bool $shouldRegisterNavigation = false;
 
     public static function form(Form $form): Form
     {
@@ -70,9 +71,9 @@ class OrderStatusHistoryResource extends Resource
                     ->sortable()
                     ->searchable(),
 
-                Tables\Columns\TextColumn::make('from_status')->badge(),
-
-                Tables\Columns\TextColumn::make('to_status')->badge(),
+                Tables\Columns\TextColumn::make('to_status')
+                    ->label('Status')
+                    ->badge(),
 
                 Tables\Columns\TextColumn::make('changer.name') // relation for changed_by
                     ->label('Changed By')
@@ -82,12 +83,7 @@ class OrderStatusHistoryResource extends Resource
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
                     ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
-
-                Tables\Columns\TextColumn::make('updated_at')
-                    ->dateTime()
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->toggleable(isToggledHiddenByDefault: false),
             ])
             ->defaultSort('created_at', 'desc')
             ->filters([])

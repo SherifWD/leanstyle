@@ -2,11 +2,16 @@
 
 namespace App\Filament\Resources\OrderResource\RelationManagers;
 
+use App\Models\OrderStatusHistory;
+use Filament\Facades\Filament;
 use Filament\Forms;
-use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Forms\Form;
+use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables;
+use Filament\Tables\Actions\CreateAction;
+use Filament\Tables\Actions\EditAction;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Model;
 
 class AssignmentsRelationManager extends RelationManager
 {
@@ -15,9 +20,16 @@ class AssignmentsRelationManager extends RelationManager
     public function form(Form $form): Form
     {
         return $form->schema([
-            Forms\Components\Select::make('driver_id')->relationship('driver', 'name')->searchable()->preload()->required(),
-            Forms\Components\Select::make('assigned_by')->relationship('assignedBy', 'name')->searchable()->preload()->required(),
-            Forms\Components\DateTimePicker::make('assigned_at'),
+            Forms\Components\Select::make('driver_id')
+                ->relationship('driver', 'name')
+                ->searchable()
+                ->preload()
+                ->required(),
+            Forms\Components\Hidden::make('assigned_by')
+                ->default(fn () => $this->getCurrentUserId())
+                ->dehydrated(true),
+            Forms\Components\DateTimePicker::make('assigned_at')
+                ->default(fn () => now()),
             Forms\Components\DateTimePicker::make('accepted_at'),
             Forms\Components\DateTimePicker::make('started_at'),
             Forms\Components\DateTimePicker::make('picked_at'),
@@ -39,10 +51,18 @@ class AssignmentsRelationManager extends RelationManager
                 Tables\Columns\TextColumn::make('completed_at')->dateTime(),
             ])
             ->headerActions([
-                Tables\Actions\CreateAction::make(),
+                CreateAction::make()
+                    ->mutateFormDataUsing(fn (array $data): array => $this->prepareAssignmentPayload($data))
+                    ->after(function (Model $record): void {
+                        $this->ensureOrderIsAssigned($record);
+                    }),
             ])
             ->actions([
-                Tables\Actions\EditAction::make(),
+                EditAction::make()
+                    ->mutateFormDataUsing(fn (array $data): array => $this->prepareAssignmentPayload($data))
+                    ->after(function (Model $record): void {
+                        $this->ensureOrderIsAssigned($record);
+                    }),
                 Tables\Actions\DeleteAction::make(),
             ])
             ->bulkActions([
@@ -51,5 +71,59 @@ class AssignmentsRelationManager extends RelationManager
                 ]),
             ]);
     }
-}
 
+    protected function prepareAssignmentPayload(array $data): array
+    {
+        if (empty($data['assigned_by'])) {
+            $data['assigned_by'] = $this->getCurrentUserId();
+        }
+
+        if (empty($data['assigned_at'])) {
+            $data['assigned_at'] = now();
+        }
+
+        return $data;
+    }
+
+    protected function ensureOrderIsAssigned(Model $assignment): void
+    {
+        $order = $this->getOwnerRecord();
+
+        if (! $order) {
+            return;
+        }
+
+        $lockedStatuses = ['picked', 'out_for_delivery', 'delivered', 'cancelled', 'rejected'];
+
+        if (in_array($order->status, $lockedStatuses, true)) {
+            return;
+        }
+
+        if ($order->status === 'assigned') {
+            return;
+        }
+
+        $fromStatus = $order->status;
+
+        $order->forceFill(['status' => 'assigned'])->save();
+
+        $changedBy = $this->getCurrentUserId() ?? $order->store?->owner_id;
+
+        if (! $changedBy) {
+            return;
+        }
+
+        OrderStatusHistory::create([
+            'order_id'    => $order->getKey(),
+            'from_status' => $fromStatus,
+            'to_status'   => 'assigned',
+            'changed_by'  => $changedBy,
+            'reason'      => 'Driver assigned via admin panel',
+        ]);
+    }
+
+    protected function getCurrentUserId(): ?int
+    {
+        return Filament::auth()->id() ?? auth()->id();
+    }
+}

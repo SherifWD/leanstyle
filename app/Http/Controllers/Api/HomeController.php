@@ -54,11 +54,11 @@ class HomeController extends Controller
 
         // Stores (filter by area if provided)
         $stores = Store::query()
-            ->when($request->filled('area'), fn($q) => $q->where('address', 'like', '%'.$request->get('area').'%'))
+            ->when($request->filled('area'), fn($q) => $q->where('city', 'like', '%'.$request->get('area').'%'))
             ->where('is_active', true)
             ->latest()
             ->take(10)
-            ->get(['id','name','slug','logo_path','address']);
+            ->get(['id','name','slug','logo_path','address','city']);
 
         // Latest products
         $latest = Product::query()
@@ -206,7 +206,7 @@ public function showP(Order $order, Request $request)
     {
 
 
-        $order->load(['customer','items.product','items.productVariant.color','items.productVariant.size','items.productVariant.images','store:id,name,logo_path,address','assignment.driver:id,name,phone']);
+        $order->load(['customer','items.product','items.productVariant.color','items.productVariant.size','items.product.images','store:id,name,logo_path,address','assignment.driver:id,name,phone']);
 
         $data = [
             'id'             => $order->id,
@@ -231,7 +231,7 @@ public function showP(Order $order, Request $request)
                 'unit_price' => (float)$i->unit_price,
                 'line_total' => (float)$i->line_total,
                 'options'    => $i->options,
-                'product' => ['variant' => $i->productVariant]
+                'product' => ['variant' => $i->productVariant,'images' => $i->images]
                 
             ]),
             'store'  => $order->store,

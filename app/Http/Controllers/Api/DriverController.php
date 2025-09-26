@@ -160,7 +160,7 @@ class DriverController extends Controller
 
         $driver = $request->user('api');
         $assignment = $this->ownedAssignmentOrAbort($order, $driver->id);
-        abort_if(!$assignment->accepted_at, 422, 'Accept the order first');
+        // abort_if(!$assignment->accepted_at, 422, 'Accept the order first');
 
         $from = $order->status;
         $allowed = [
