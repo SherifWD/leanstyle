@@ -70,22 +70,25 @@ class Order extends Model
         ];
 
         $current = static::query()
-            ->select('status')
+            ->whereNotNull('status')
             ->distinct()
-            ->pluck('status')
-            ->filter()
-            ->all();
+            ->pluck('status');
 
-        $historyStatuses = OrderStatusHistory::query()
-            ->select('from_status', 'to_status')
-            ->get()
-            ->flatten()
-            ->filter()
-            ->all();
+        $historyFrom = OrderStatusHistory::query()
+            ->whereNotNull('from_status')
+            ->distinct()
+            ->pluck('from_status');
+
+        $historyTo = OrderStatusHistory::query()
+            ->whereNotNull('to_status')
+            ->distinct()
+            ->pluck('to_status');
 
         return collect($seed)
             ->merge($current)
-            ->merge($historyStatuses)
+            ->merge($historyFrom)
+            ->merge($historyTo)
+            ->filter()
             ->unique()
             ->values()
             ->mapWithKeys(function ($status) {
