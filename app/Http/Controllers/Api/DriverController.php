@@ -171,9 +171,9 @@ class DriverController extends Controller
             'delivered'=> ['delivered'],
         ];
 
-        if (! isset($allowed[$from]) || ! in_array($data['to_status'], $allowed[$from], true)) {
-            return response()->json(['result'=>false,'msg'=>"Invalid transition $from → {$data['to_status']}"], 422);
-        }
+        // if (! isset($allowed[$from]) || ! in_array($data['to_status'], $allowed[$from], true)) {
+        //     return response()->json(['result'=>false,'msg'=>"Invalid transition $from → {$data['to_status']}"], 422);
+        // }
 
         DB::transaction(function () use ($order, $assignment, $driver, $data) {
             $now = now();
