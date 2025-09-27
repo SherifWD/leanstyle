@@ -5,7 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\{
     Order, OrderAssignment, OrderStatusHistory,
-    DriverAvailability, DriverCashLedger
+    DriverAvailability, DriverCashLedger, Setting
 };
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -194,6 +194,10 @@ class DriverController extends Controller
                 ], [
                     'amount'    => $order->grand_total,
                     'note'      => 'Auto collect on delivery',
+                    'store_id'  => $order->store_id,
+                    'order_total' => (float) $order->grand_total,
+                    'delivery_fee'=> (float) $order->delivery_fee,
+                    'tax_fee'     => (float) $order->tax_total,
                     'effective_at' => now(),
                 ]);
             }
@@ -210,13 +214,46 @@ class DriverController extends Controller
         $collect = (float) DriverCashLedger::where('driver_id',$driverId)->where('type','collect')->sum('amount');
         $remit   = (float) DriverCashLedger::where('driver_id',$driverId)->where('type','remit')->sum('amount');
         $adj     = (float) DriverCashLedger::where('driver_id',$driverId)->where('type','adjustment')->sum('amount');
+        $remittanceTotals = DriverCashLedger::query()
+            ->where('driver_id', $driverId)
+            ->where('type', 'remit')
+            ->selectRaw('
+                COALESCE(SUM(driver_earnings), 0) as driver_earnings_total,
+                COALESCE(SUM(delivery_fee), 0)   as delivery_fee_total,
+                COALESCE(SUM(store_amount), 0)   as store_total,
+                COALESCE(SUM(tax_fee), 0)        as tax_total,
+                COALESCE(SUM(order_total), 0)    as order_total_total
+            ')
+            ->first();
 
-        return $this->returnData('cash', [
+        $completedAggregate = Order::query()
+            ->whereHas('assignment', fn($a) => $a->where('driver_id', $driverId))
+            ->where('status', 'delivered')
+            ->selectRaw('
+                COUNT(*) as orders_count,
+                COALESCE(SUM(grand_total), 0)      as grand_total_sum,
+                COALESCE(SUM(delivery_fee), 0)     as delivery_fee_sum,
+                COALESCE(SUM(grand_total - delivery_fee), 0) as store_total_sum
+            ')
+            ->first();
+
+        $cash = [
             'collected_total' => $collect,
             'remitted_total'  => $remit,
             'adjustments'     => $adj,
             'balance'         => $collect - $remit + $adj,
-        ], "Cash Summary");
+            'delivery_fee_total'          => (float) ($remittanceTotals->delivery_fee_total ?? 0),
+            'tax_fee_total'               => (float) ($remittanceTotals->tax_total ?? 0),
+            'driver_net_total'            => (float) ($remittanceTotals->driver_earnings_total ?? 0),
+            'store_total_received'        => (float) ($remittanceTotals->store_total ?? 0),
+            'orders_total_value'          => (float) ($remittanceTotals->order_total_total ?? 0),
+            'completed_orders_count'      => (int)   ($completedAggregate->orders_count ?? 0),
+            'completed_orders_value'      => (float) ($completedAggregate->grand_total_sum ?? 0),
+            'completed_orders_store_value'=> (float) ($completedAggregate->store_total_sum ?? 0),
+            'completed_orders_delivery_fee_total' => (float) ($completedAggregate->delivery_fee_sum ?? 0),
+        ];
+
+        return $this->returnData('cash', $cash, "Cash Summary");
     }
 
     /** Collect cash */
@@ -235,9 +272,12 @@ class DriverController extends Controller
         $entry = DriverCashLedger::create([
             'driver_id'   => $driverId,
             'order_id'    => $order->id,
+            'store_id'    => $order->store_id,
             'type'        => 'collect',
-            'amount'      => $data['amount'],
+            'amount'      => round((float) $data['amount'], 2),
             'note'        => $data['note'] ?? null,
+            'order_total' => (float) $order->grand_total,
+            'delivery_fee'=> (float) $order->delivery_fee,
             'effective_at'=> now(),
         ]);
 
@@ -248,20 +288,50 @@ class DriverController extends Controller
     public function remitCash(Request $request)
     {
         $data = $request->validate([
-            'amount'    => ['required','numeric','min:0.01'],
+            'order_id'  => ['required','exists:orders,id'],
+            'amount' => ['required','numeric','min:0.01'],
             'reference' => ['nullable','string','max:120'],
             'note'      => ['nullable','string','max:500'],
         ]);
 
         $driverId = $request->user('api')->id;
 
-        $entry = DriverCashLedger::create([
-            'driver_id'   => $driverId,
-            'type'        => 'remit',
-            'amount'      => $data['amount'],
-            'note'        => $data['note'] ?? $data['reference'] ?? null,
-            'effective_at'=> now(),
-        ]);
+        $order = Order::findOrFail($data['order_id']);
+        $this->ownedAssignmentOrAbort($order, $driverId);
+
+
+        $deliveryFee = round(Setting::floatValue('driver_delivery_fee', (float) $order->delivery_fee), 2);
+        $taxFee      = round(Setting::floatValue('driver_tax_fee', 0.0), 2);
+
+        $storeAmount   = round((float) $data['amount'], 2);
+        $driverNet     = max(round($deliveryFee - $taxFee, 2), 0.0);
+        $amountToRemit = max(round($storeAmount + $taxFee, 2), 0.0);
+
+        $note = $data['note'] ?? null;
+        if (!$note && !empty($data['reference'])) {
+            $note = $data['reference'];
+        } elseif (!empty($data['reference'])) {
+            $note = trim(($data['reference'] ?? '') . ($note ? ' | '.$note : ''));
+        }
+
+        $entry = DriverCashLedger::updateOrCreate(
+            [
+                'driver_id' => $driverId,
+                'order_id'  => $order->id,
+                'type'      => 'remit',
+            ],
+            [
+                'store_id'        => $order->store_id,
+                'amount'          => $amountToRemit,
+                'order_total'     => $storeAmount,
+                'delivery_fee'    => $deliveryFee,
+                'tax_fee'         => $taxFee,
+                'driver_earnings' => $driverNet,
+                'store_amount'    => $storeAmount,
+                'note'            => $note,
+                'effective_at'    => now(),
+            ]
+        );
 
         return $this->returnData('entry', ['entry_id' => $entry->id], "Remittance Logged");
     }
